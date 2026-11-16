@@ -157,6 +157,135 @@ public sealed class Emitter(InterfaceModel model, string rootInterface)
         string EnumType(ValueTypeDef vt) => vt.IsEnum ? $"typeof({CsEnumName(vt)})" : "null";
     }
 
+    // ---------- Wrappers typés ----------
+
+    private string CsClassName(InterfaceDef intf)
+    {
+        string[] parts = intf.FullName.Split('.');
+        if (parts.Length > 1 && parts[0] == "ODrive") parts = parts[1..];
+        return string.Concat(parts.Select(model.ToPascalCase));
+    }
+
+    private static string CsValueType(ValueTypeDef vt) => vt.IsEnum ? CsEnumName(vt) : vt.JsonType switch
+    {
+        "bool" => "bool",
+        "float" => "float",
+        "int8" => "sbyte",
+        "uint8" => "byte",
+        "int16" => "short",
+        "uint16" => "ushort",
+        "int32" => "int",
+        "uint32" => "uint",
+        "int64" => "long",
+        "uint64" => "ulong",
+        "endpoint_ref" => "ODrive.Protocol.EndpointRef",
+        _ => throw new InvalidDataException("type sans équivalent C# : " + vt.FullName),
+    };
+
+    /// <summary>Une classe par interface atteignable depuis la racine : propriétés, sous-objets et fonctions.</summary>
+    public string EmitWrappers()
+    {
+        // Interfaces dans l'ordre de première visite.
+        var interfaces = new List<InterfaceDef>();
+        Collect(_root);
+        void Collect(InterfaceDef intf)
+        {
+            if (interfaces.Contains(intf)) return;
+            interfaces.Add(intf);
+            foreach (var attr in intf.GetAllAttributes())
+                if (attr.SubObject is not null) Collect(attr.SubObject);
+        }
+
+        var enumNames = model.Enums.Select(CsEnumName).ToHashSet();
+        var duplicates = interfaces.GroupBy(CsClassName).Where(g => g.Count() > 1 || enumNames.Contains(g.Key))
+            .Select(g => g.Key).ToList();
+        if (duplicates.Count > 0)
+            throw new InvalidDataException("noms de classe C# en conflit : " + string.Join(", ", duplicates));
+
+        var sb = new StringBuilder(Header);
+        sb.Append("using System.Collections.Generic;\nusing System.Threading;\nusing System.Threading.Tasks;\nusing ODrive.Protocol;\n");
+
+        foreach (var intf in interfaces)
+        {
+            string className = CsClassName(intf);
+            var attributes = intf.GetAllAttributes();
+            var functions = intf.GetAllFunctions();
+            bool isRoot = ReferenceEquals(intf, _root);
+
+            // CS0542 : un membre ne peut pas porter le nom de sa classe (Endpoint.endpoint devient EndpointValue).
+            string Member(string firmwareName)
+            {
+                string name = CsMemberName(firmwareName);
+                return name == className ? name + "Value" : name;
+            }
+
+            var members = attributes.Select(a => Member(a.Name))
+                .Concat(functions.Select(f => Member(f.Name) + "Async")).ToList();
+            var clashes = members.GroupBy(m => m).Where(g => g.Count() > 1 || g.Key is "Device" or "Path")
+                .Select(g => g.Key).ToList();
+            if (clashes.Count > 0)
+                throw new InvalidDataException($"membres en conflit dans {className} : " + string.Join(", ", clashes));
+
+            sb.Append($"\n/// <summary>{Xml(intf.FullName)}</summary>\n");
+            sb.Append($"public sealed partial class {className} : RemoteObject\n{{\n");
+            if (isRoot)
+                sb.Append($"    public {className}(ODriveDevice device) : this(device, \"\") {{ }}\n\n");
+            sb.Append($"    public {className}(ODriveDevice device, string path) : base(device, path)\n    {{\n");
+            foreach (var attr in attributes)
+            {
+                sb.Append(attr.Value is not null
+                    ? $"        {Member(attr.Name)} = Property<{CsValueType(attr.Value)}>({Lit(attr.Name)});\n"
+                    : $"        {Member(attr.Name)} = new {CsClassName(attr.SubObject!)}(device, ChildPath({Lit(attr.Name)}));\n");
+            }
+            sb.Append("    }\n");
+
+            foreach (var attr in attributes)
+            {
+                sb.Append('\n');
+                string? summary = Summary(attr.Brief, attr.Doc);
+                if (attr.Unit is not null) summary = summary is null ? $"[{attr.Unit}]" : $"[{attr.Unit}] {summary}";
+                if (summary is not null) sb.Append($"    /// <summary>{Xml(summary)}</summary>\n");
+                string type = attr.Value is not null ? $"RemoteProperty<{CsValueType(attr.Value)}>" : CsClassName(attr.SubObject!);
+                sb.Append($"    public {type} {Member(attr.Name)} {{ get; }}\n");
+            }
+
+            foreach (var func in functions)
+            {
+                sb.Append('\n');
+                if (Summary(func.Brief, func.Doc) is { } summary)
+                    sb.Append($"    /// <summary>{Xml(summary)}</summary>\n");
+                string parameters = string.Concat(func.Inputs.Select(a => $"{CsValueType(a.Type!)} {CsParameterName(a.Name)}, "));
+                string arguments = "[" + string.Join(", ", func.Inputs.Select(a => CsParameterName(a.Name))) + "]";
+                string call = $"CallAsync({Lit(func.Name)}, {arguments}, ct)";
+                string name = Member(func.Name) + "Async";
+                if (func.Outputs.Count == 0)
+                {
+                    sb.Append($"    public Task {name}({parameters}CancellationToken ct = default) =>\n        {call};\n");
+                }
+                else
+                {
+                    string returnType = func.Outputs.Count == 1
+                        ? CsValueType(func.Outputs[0].Type!)
+                        : "(" + string.Join(", ", func.Outputs.Select(o => $"{CsValueType(o.Type!)} {CsMemberName(o.Name)}")) + ")";
+                    string result = func.Outputs.Count == 1
+                        ? $"Output<{CsValueType(func.Outputs[0].Type!)}>(outputs, 0)"
+                        : "(" + string.Join(", ", func.Outputs.Select((o, i) => $"Output<{CsValueType(o.Type!)}>(outputs, {i})")) + ")";
+                    sb.Append($"    public async Task<{returnType}> {name}({parameters}CancellationToken ct = default)\n    {{\n");
+                    sb.Append($"        IReadOnlyList<object> outputs = await {call}.ConfigureAwait(false);\n");
+                    sb.Append($"        return {result};\n    }}\n");
+                }
+            }
+            sb.Append("}\n");
+        }
+        return sb.ToString();
+    }
+
+    private string CsParameterName(string firmwareName)
+    {
+        string pascal = CsMemberName(firmwareName);
+        return "@" + char.ToLowerInvariant(pascal[0]) + pascal[1..];
+    }
+
     // ---------- JSON d'endpoints (generate_endpoint_table, interface_generator.py:478) ----------
 
     /// <summary>

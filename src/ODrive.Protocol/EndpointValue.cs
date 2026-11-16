@@ -4,7 +4,7 @@ using System.Globalization;
 namespace ODrive.Protocol;
 
 /// <summary>Types de propriété du JSON d'endpoints (<c>ref/ODrive/Firmware/fibre-cpp/legacy_object_client.cpp:182-194</c>).</summary>
-#pragma warning disable CA1720 // Les noms reprennent ceux des types du JSON (int8, uint16, float�).
+#pragma warning disable CA1720 // Les noms reprennent ceux des types du JSON (int8, uint16, float…).
 public enum EndpointValueType
 {
     Bool,

@@ -63,6 +63,7 @@ Directory.CreateDirectory(outDir);
 Write("Enums.g.cs", emitter.EmitEnums());
 Write("EnumMetadata.g.cs", emitter.EmitEnumMetadata());
 Write("InterfaceMetadata.g.cs", emitter.EmitInterfaceMetadata());
+Write("Wrappers.g.cs", emitter.EmitWrappers());
 
 var (properties, functions) = emitter.Flatten();
 Console.WriteLine($"{model.Enums.Count()} enums, {properties.Count} propriétés, {functions.Count} fonctions → {outDir}");

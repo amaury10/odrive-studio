@@ -4,7 +4,7 @@
     <IsLibrary>true</IsLibrary>
   </PropertyGroup>
   <ItemGroup>
-    <!-- JSON d'endpoints de référence (firmware 0.5.6, v3.x) pour la carte simulée. -->
+    <!-- JSON d'endpoints de rÃ©fÃ©rence (firmware 0.5.6, v3.x) pour la carte simulÃ©e. -->
     <EmbeddedResource Include="../../tests/ODrive.Protocol.Tests/data/odrive-v3.6-0.5.6.json"
                       LogicalName="ODrive.Protocol.Simulation.odrive-v3.6-0.5.6.json" />
   </ItemGroup>
