@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <!-- Version de plateforme Windows 10 exigée par SkiaSharp.Views.WPF (dépendance de ScottPlot.WPF). -->
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
+    <PackageReference Include="ScottPlot.WPF" Version="5.*" />
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../ODrive.Tuning/ODrive.Tuning.csproj" />
+    <ProjectReference Include="../ODrive.Can/ODrive.Can.csproj" />
+  </ItemGroup>
+</Project>

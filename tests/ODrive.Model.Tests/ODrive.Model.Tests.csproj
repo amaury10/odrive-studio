@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.*" />
+    <PackageReference Include="FluentAssertions" Version="7.*" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ODrive.Model/ODrive.Model.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- JSON d'endpoints de référence, partagé avec les tests du protocole. -->
+    <None Include="../ODrive.Protocol.Tests/data/odrive-v3.6-0.5.6.json" Link="data/odrive-v3.6-0.5.6.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
