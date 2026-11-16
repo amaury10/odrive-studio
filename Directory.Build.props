@@ -5,7 +5,4 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AnalysisLevel>latest-recommended</AnalysisLevel>
   </PropertyGroup>
-  <PropertyGroup Condition="'$(IsLibrary)' == 'true'">
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
-  </PropertyGroup>
 </Project>

@@ -1,0 +1,7 @@
+<Project>
+  <!-- Dans un .targets et non dans Directory.Build.props : IsLibrary est défini par le .csproj, qui est
+       évalué après le .props. -->
+  <PropertyGroup Condition="'$(IsLibrary)' == 'true'">
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
