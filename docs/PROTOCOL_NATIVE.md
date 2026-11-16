@@ -112,10 +112,18 @@ Généré par `tools/fibre-tools/interface_generator.py:462-541`. Une liste de m
 ## Robustesse
 - Délai d'attente par requête (100 ms par défaut), 3 essais, puis la connexion est marquée « perdue ».
   Une réponse dont le `seq_no` ne correspond pas à la requête en cours est jetée.
-- Accès sérialisé par carte (une seule requête en vol) via un `Channel<T>` ; l'acquisition des courbes
-  regroupe ses lectures et passe dans la même file.
-- Après `reboot()`, `save_configuration()` ou `erase_configuration()`, la carte se déconnecte : attendre
-  la ré-énumération et relire le JSON (ou seulement `json_version_id` si le cache est valide).
+- **Le déclenchement d'une fonction n'est jamais rejoué** (un seul essai) : si seule la réponse s'était
+  perdue, la fonction serait exécutée deux fois. Lectures et écritures sont rejouables sans risque.
+- Accès sérialisé par carte (une seule requête en vol) : un verrou asynchrone dans `ODriveDevice`, tenu
+  pendant les trois étapes d'un appel de fonction. La file à priorités (arrêt d'urgence en tête,
+  acquisition des courbes regroupée) arrive avec les phases 2 et 4.
+- Après `reboot()`, `save_configuration()` ou `erase_configuration()`, la carte redémarre **sans acquitter**
+  l'appel (`Firmware/MotorControl/main.cpp:159-195`) et se déconnecte : attendre la ré-énumération et relire
+  le JSON (ou seulement `json_version_id` si le cache est valide). `save_configuration()` fait exception si
+  un moteur est armé : la carte refuse, répond `false` et ne redémarre pas (`main.cpp:163-167`).
+- Réception USB : un fil garde en permanence une lecture en attente sur l'endpoint IN et range les paquets
+  dans une file ; aucun transfert n'est annulé quand un délai expire, donc aucune réponse tardive n'est
+  perdue ni attribuée à la mauvaise requête (`WinUsbTransport`).
 
 ## Références dans `ref/ODrive` (tag fw-v0.5.6)
 - `Firmware/odrive-interface.yaml` : interfaces, enums, flags d'erreur, docs → `tools/ODrive.CodeGen`.
@@ -136,8 +144,13 @@ Généré par `tools/fibre-tools/interface_generator.py:462-541`. Une liste de m
   firmware officiel 0.5.6.
 - `tools/ODrive.CodeGen --check-json` vérifie que le portage C# du générateur reproduit ce JSON à l'octet près.
 
-## Tests attendus (phase 1)
-- Encodage / décodage des paquets, CRC8 et CRC16 (vecteurs calculés à la main depuis `crc.hpp`).
-- Parsing du JSON de référence, calcul de son CRC (`0xC1A0`).
-- Transport simulé : un serveur d'objets en mémoire qui répond comme la carte (mêmes règles de trailer,
-  de bit d'ACK et de MTU).
+## Tests (phase 1, `tests/ODrive.Protocol.Tests`)
+- Encodage / décodage des paquets, CRC8 et CRC16 (vecteurs calculés par une implémentation Python
+  indépendante de l'algorithme de `crc.hpp`).
+- Parsing du JSON de référence, calcul de son CRC (`0xC1A0`) et de `json_version_id` (`0xC1A0AD28`).
+- Carte simulée (`SimulatedODrive`) : un serveur d'objets en mémoire qui répond comme la carte (mêmes règles
+  de trailer, de bit d'ACK et de MTU).
+- Client (`ODriveDevice`) contre la carte simulée : lecture, écriture, appel de fonction, réessais, perte de
+  liaison, reboot et reconnexion, cache du JSON.
+- Le tramage série (CRC8 d'en-tête, CRC16 de fin) n'est pas implémenté : seuls les CRC le sont. Il viendra
+  avec le transport série de repli, si le besoin se confirme.

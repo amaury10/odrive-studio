@@ -17,3 +17,12 @@ configuration, courbes temps réel, réglage des boucles, autotune, anticogging,
   `dotnet run --project tools/ODrive.CodeGen` et `python tools/gen_reference_json.py`
   (`pip install pyyaml jinja2 jsonschema`).
 - Optionnel : adaptateur USB-CAN (PCAN-USB, CANable).
+
+## Outil console (phase 1)
+```
+dotnet run --project tools/ODrive.Cli -- list           # cartes branchées, diagnostic du pilote
+dotnet run --project tools/ODrive.Cli -- check          # lecture, écriture, clear_errors, reboot, reconnexion
+dotnet run --project tools/ODrive.Cli -- dump           # JSON d'endpoints + toutes les valeurs → fichier
+```
+Ajouter `--sim` pour travailler sur la carte simulée, sans matériel. Fermer `odrivetool` avant : une seule
+application à la fois peut ouvrir l'interface native.

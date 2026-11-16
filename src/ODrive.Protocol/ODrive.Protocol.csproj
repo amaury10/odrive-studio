@@ -2,6 +2,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <IsLibrary>true</IsLibrary>
+    <!-- P/Invoke WinUSB (LibraryImport, tampons épinglés). -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <!-- JSON d'endpoints de référence (firmware 0.5.6, v3.x) pour la carte simulée. -->

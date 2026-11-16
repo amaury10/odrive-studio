@@ -42,6 +42,7 @@ src/ODrive.Can         CAN Simple 0.5.6 (encodage/décodage), backends adaptateu
 src/ODrive.Tuning      calibration, autotune, anticogging, identification, tests d'échelon
 src/ODriveStudio.App   application WPF (MVVM)
 tools/ODrive.CodeGen   génère src/ODrive.Model depuis odrive-interface.yaml
+tools/ODrive.Cli       console : list, dump, check (acceptation phase 1), --sim pour la carte simulée
 tests/*                tests unitaires par projet
 docs/                  spécifications : à lire avant de coder une fonctionnalité
 ```

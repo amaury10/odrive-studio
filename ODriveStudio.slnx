@@ -8,6 +8,7 @@
   </Folder>
   <Folder Name="/tools/">
     <Project Path="tools/ODrive.CodeGen/ODrive.CodeGen.csproj" />
+    <Project Path="tools/ODrive.Cli/ODrive.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/ODrive.Protocol.Tests/ODrive.Protocol.Tests.csproj" />

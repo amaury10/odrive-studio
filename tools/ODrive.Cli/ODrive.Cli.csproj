@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <AssemblyName>odrive-cli</AssemblyName>
+    <RootNamespace>ODrive.Cli</RootNamespace>
+    <!-- CA1305 : la culture invariante est imposée au démarrage (Program.cs). -->
+    <NoWarn>$(NoWarn);CA1305</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/ODrive.Model/ODrive.Model.csproj" />
+  </ItemGroup>
+</Project>

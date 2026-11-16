@@ -94,6 +94,26 @@ public sealed class SimulatedODrive
         return new SimulatedODrive(memory.ToArray());
     }
 
+    /// <summary>
+    /// Carte simulée qui démarre dans l'état d'une vraie carte (<c>ODrive.Cli dump</c>) : même JSON d'endpoints,
+    /// et les valeurs du dump comme valeurs au démarrage.
+    /// </summary>
+    public static SimulatedODrive FromDump(DeviceDump dump)
+    {
+        ArgumentNullException.ThrowIfNull(dump);
+        var device = new SimulatedODrive(dump.EndpointJson.Span);
+        foreach ((string path, object value) in dump.Values)
+        {
+            if (device.Schema.FindProperty(path) is { } property)
+            {
+                byte[] data = EndpointValue.Encode(property.Type, value);
+                device._values[property.Id] = data;
+                device._defaults[property.Id] = (byte[])data.Clone();
+            }
+        }
+        return device;
+    }
+
     /// <summary>Lit une valeur par son chemin (propriété, ou argument de fonction « fonction.argument »).</summary>
     public object Get(string path)
     {

@@ -17,18 +17,24 @@ Chaque phase se termine par : build sans warning, tests verts, critères d'accep
       le portage C# le reproduit à l'octet près.
 **Acceptation :** solution qui compile ; enums et flags d'erreur générés ; docs sans ⚠ sur le protocole.
 
-## Phase 1 — Protocole natif et connexion
-- [ ] PacketCodec + CRC + tests (vecteurs déduits de `crc.hpp` et `legacy_protocol.cpp` : il n'existe pas
+## Phase 1 — Protocole natif et connexion (code terminé, acceptation matérielle à faire)
+- [x] PacketCodec + CRC + tests (vecteurs déduits de `crc.hpp` et `legacy_protocol.cpp` : il n'existe pas
       d'implémentation Python pure en 0.5.6).
-- [ ] WinUsbTransport (énumération, ouverture, bulk in/out, délais d'attente, déconnexion).
-- [ ] Lecture du JSON, arbre dynamique, lecture / écriture / appel de fonction.
-- [ ] SimulatedTransport basé sur le JSON de référence (déjà disponible, phase 0).
-- [ ] Wrappers typés générés par `ODrive.CodeGen` au-dessus de `RemoteProperty<T>`.
-- [ ] Commande console `ODrive.Cli dump` : écrit le JSON et toutes les valeurs de la carte dans un fichier →
-      confirme le JSON de référence (`json_version_id` attendu : `0xC1A0xxxx`) et fournit les valeurs
-      par défaut réelles au simulateur.
+- [x] WinUsbTransport (énumération, ouverture, bulk in/out, délais d'attente, déconnexion) — écrit, **pas
+      encore essayé sur une carte** (les tests unitaires ne touchent pas l'USB).
+- [x] Lecture du JSON, arbre dynamique (`EndpointSchema`), lecture / écriture / appel de fonction
+      (`ODriveDevice`), cache du JSON par `json_version_id` (en mémoire ; cache disque en phase 2).
+- [x] `SimulatedODrive` + `SimulatedTransport` basés sur le JSON de référence : mêmes règles de trailer, de
+      bit d'ACK et de MTU que la carte ; reboot, save et erase simulés. Le modèle moteur viendra avec les
+      phases qui en ont besoin (5 à 7).
+- [x] Wrappers typés générés par `ODrive.CodeGen` (`Generated/Wrappers.g.cs`) au-dessus de `RemoteProperty<T>`.
+- [x] Commande console `tools/ODrive.Cli` : `list`, `dump` (JSON + toutes les valeurs, rechargeable par
+      `SimulatedODrive.FromDump`) et `check` (déroule l'acceptation ci-dessous) ; `--sim` pour la carte simulée.
 **Acceptation (matériel) :** lire `vbus_voltage`, écrire `axis0.controller.config.vel_limit`, appeler
 `clear_errors()`, survivre à un `reboot()`.
+- [x] sur le simulateur : `dotnet run --project tools/ODrive.Cli -- check --sim` ;
+- [ ] sur la carte : `dotnet run --project tools/ODrive.Cli -- check`, puis `dump` pour confirmer le JSON de
+      référence (`json_version_id` attendu : `0xC1A0AD28`) et archiver les valeurs réelles de la carte.
 
 ## Phase 2 — Application : connexion, tableau de bord, explorateur
 - [ ] Shell WPF, DeviceManager, multi-cartes, barre d'arrêt d'urgence.
