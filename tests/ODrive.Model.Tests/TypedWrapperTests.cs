@@ -46,8 +46,8 @@ public class TypedWrapperTests
         (await odrv.Axis0.CurrentState.GetAsync()).Should().Be(AxisState.Idle);
         (await odrv.Axis0.Error.GetAsync()).Should().Be(AxisError.MotorFailed | AxisError.EncoderFailed);
 
-        await odrv.Axis0.RequestedState.SetAsync(AxisState.ClosedLoopControl);
-        _board.Get("axis0.requested_state").Should().Be((byte)8);
+        await odrv.Axis1.RequestedState.SetAsync(AxisState.ClosedLoopControl);
+        _board.Get("axis1.current_state").Should().Be((byte)8);
     }
 
     [Fact]

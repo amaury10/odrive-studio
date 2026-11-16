@@ -44,6 +44,9 @@ public sealed record ODriveDeviceOptions
     public int MaxAttempts { get; init; } = 3;
 
     public ISchemaCache? SchemaCache { get; init; }
+
+    /// <summary>Journal des écritures et des appels de fonction (docs/SAFETY.md).</summary>
+    public IWriteJournal? Journal { get; init; }
 }
 
 /// <summary>
@@ -57,7 +60,7 @@ public sealed class ODriveDevice : IAsyncDisposable
 
     private readonly ITransport _transport;
     private readonly ODriveDeviceOptions _options;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly PriorityAsyncLock _gate = new();
     private readonly byte[] _txBuffer = new byte[PacketCodec.MaxPacketSize];
     private readonly byte[] _rxBuffer = new byte[PacketCodec.MaxPacketSize + 1];
     private ushort _seqNo;
@@ -108,14 +111,14 @@ public sealed class ODriveDevice : IAsyncDisposable
     /// <summary>Lit <c>json_version_id</c> en une requête (<c>legacy_protocol.cpp:305-307</c>).</summary>
     public async Task<uint> ReadJsonVersionIdAsync(CancellationToken ct = default)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.EnterAsync(RequestPriority.Normal, ct).ConfigureAwait(false);
         try
         {
             return await ReadJsonVersionIdCoreAsync(ct).ConfigureAwait(false);
         }
         finally
         {
-            _gate.Release();
+            _gate.Exit();
         }
     }
 
@@ -136,7 +139,15 @@ public sealed class ODriveDevice : IAsyncDisposable
     public Task<T> ReadAsync<T>(string path, CancellationToken ct = default) =>
         ReadAsync<T>(Schema.GetProperty(path), ct);
 
-    public async Task WriteAsync(PropertyNode property, object value, CancellationToken ct = default)
+    public Task WriteAsync(PropertyNode property, object value, CancellationToken ct = default) =>
+        WriteAsync(property, value, RequestPriority.Normal, ct);
+
+    /// <summary>
+    /// Écrit une propriété. En priorité <see cref="RequestPriority.Emergency"/>, l'écriture passe devant toutes
+    /// les requêtes en attente et part sans lecture préalable de l'ancienne valeur.
+    /// </summary>
+    public async Task WriteAsync(PropertyNode property, object value, RequestPriority priority,
+        CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(property);
         if (!property.IsWritable)
@@ -145,15 +156,24 @@ public sealed class ODriveDevice : IAsyncDisposable
         }
 
         byte[] data = EndpointValue.Encode(property.Type, value);
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        IWriteJournal? journal = _options.Journal;
+        object? oldValue = null;
+        await _gate.EnterAsync(priority, ct).ConfigureAwait(false);
         try
         {
+            if (journal is not null && priority == RequestPriority.Normal)
+            {
+                oldValue = EndpointValue.Decode(property.Type, await ReadCoreAsync(property, ct).ConfigureAwait(false));
+            }
             await WriteCoreAsync(property, data, ct).ConfigureAwait(false);
         }
         finally
         {
-            _gate.Release();
+            _gate.Exit();
         }
+
+        journal?.Record(new WriteJournalEntry(DateTimeOffset.Now, SerialNumber, JournalEntryKind.Write,
+            property.Path, oldValue, EndpointValue.Decode(property.Type, data)));
     }
 
     public Task WriteAsync(string path, object value, CancellationToken ct = default) =>
@@ -182,7 +202,11 @@ public sealed class ODriveDevice : IAsyncDisposable
             inputs[i] = EndpointValue.Encode(function.Inputs[i].Type, arguments[i]);
         }
 
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        // Journalisé avant l'envoi : un appel qui fait redémarrer la carte ne revient pas normalement.
+        _options.Journal?.Record(new WriteJournalEntry(DateTimeOffset.Now, SerialNumber, JournalEntryKind.Call,
+            function.Path, null, string.Join(", ", arguments.Select(WriteJournalEntry.Format))));
+
+        await _gate.EnterAsync(RequestPriority.Normal, ct).ConfigureAwait(false);
         try
         {
             for (int i = 0; i < inputs.Length; i++)
@@ -205,7 +229,7 @@ public sealed class ODriveDevice : IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            _gate.Exit();
         }
     }
 
@@ -242,7 +266,6 @@ public sealed class ODriveDevice : IAsyncDisposable
         _transport.Disconnected -= OnTransportDisconnected;
         Volatile.Write(ref _lost, 1);
         await _transport.DisposeAsync().ConfigureAwait(false);
-        _gate.Dispose();
     }
 
     private async Task CallExpectingRebootAsync(string functionPath, CancellationToken ct)
@@ -259,7 +282,7 @@ public sealed class ODriveDevice : IAsyncDisposable
 
     private async Task<EndpointSchema> LoadSchemaAsync(CancellationToken ct)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.EnterAsync(RequestPriority.Normal, ct).ConfigureAwait(false);
         try
         {
             ISchemaCache? cache = _options.SchemaCache;
@@ -302,7 +325,7 @@ public sealed class ODriveDevice : IAsyncDisposable
         }
         finally
         {
-            _gate.Release();
+            _gate.Exit();
         }
     }
 
@@ -321,14 +344,14 @@ public sealed class ODriveDevice : IAsyncDisposable
 
     private async Task<byte[]> ReadRawAsync(PropertyNode property, CancellationToken ct)
     {
-        await _gate.WaitAsync(ct).ConfigureAwait(false);
+        await _gate.EnterAsync(RequestPriority.Normal, ct).ConfigureAwait(false);
         try
         {
             return await ReadCoreAsync(property, ct).ConfigureAwait(false);
         }
         finally
         {
-            _gate.Release();
+            _gate.Exit();
         }
     }
 

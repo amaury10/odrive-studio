@@ -198,6 +198,46 @@ public class SimulatedODriveTests
     }
 
     [Fact]
+    public void Requesting_closed_loop_arms_the_axis_and_requesting_idle_disarms_it()
+    {
+        // L'axe consomme requested_state et le remet à UNDEFINED (ref/ODrive/Firmware/MotorControl/axis.cpp:485).
+        _device.HandlePacket(Request(0x0081, 135, 0, [8], JsonCrc)); // AXIS_STATE_CLOSED_LOOP_CONTROL
+
+        _device.Get("axis0.current_state").Should().Be((byte)8);
+        _device.Get("axis0.motor.is_armed").Should().Be(true);
+        _device.Get("axis0.requested_state").Should().Be((byte)0);
+        _device.Get("axis1.current_state").Should().Be((byte)1);
+
+        _device.HandlePacket(Request(0x0082, 135, 0, [1], JsonCrc)); // AXIS_STATE_IDLE
+
+        _device.Get("axis0.current_state").Should().Be((byte)1);
+        _device.Get("axis0.motor.is_armed").Should().Be(false);
+    }
+
+    [Fact]
+    public void Closed_loop_is_refused_while_the_axis_has_an_error()
+    {
+        _device.Set("axis0.error", 0x40u);
+
+        _device.HandlePacket(Request(0x0081, 135, 0, [8], JsonCrc));
+
+        _device.Get("axis0.current_state").Should().Be((byte)1);
+        _device.Get("axis0.motor.is_armed").Should().Be(false);
+    }
+
+    [Fact]
+    public void Write_hook_runs_after_the_value_is_stored()
+    {
+        object? seen = null;
+        _device.OnWrite("axis0.controller.input_vel", device => seen = device.Get("axis0.controller.input_vel"));
+
+        _device.HandlePacket(Request(0x0081, _device.Schema.GetProperty("axis0.controller.input_vel").Id, 0,
+            EndpointValue.Encode(EndpointValueType.Float, 1.5f), JsonCrc));
+
+        seen.Should().Be(1.5f);
+    }
+
+    [Fact]
     public void Erase_configuration_restores_defaults_and_reboots()
     {
         _device.Set("axis0.controller.config.vel_limit", 9f);

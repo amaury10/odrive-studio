@@ -41,6 +41,7 @@ public sealed class SimulatedODrive
     private readonly Dictionary<ushort, byte[]> _values = [];
     private readonly Dictionary<ushort, byte[]> _defaults = [];
     private readonly Dictionary<string, Action<SimulatedCall>> _handlers = new(StringComparer.Ordinal);
+    private readonly Dictionary<ushort, Action<SimulatedODrive>> _writeHooks = [];
     private Dictionary<ushort, byte[]> _saved = [];
 
     public SimulatedODrive(ReadOnlySpan<byte> json)
@@ -77,6 +78,7 @@ public sealed class SimulatedODrive
         }
 
         RegisterBuiltInFunctions();
+        RegisterAxisStateMachine();
     }
 
     /// <summary>Levé quand la carte simulée redémarre (reboot, save_configuration, erase_configuration).</summary>
@@ -143,6 +145,17 @@ public sealed class SimulatedODrive
         lock (_gate)
         {
             _handlers[functionPath] = handler;
+        }
+    }
+
+    /// <summary>Réaction du firmware simulé à l'écriture d'une propriété par le client (appelée après le stockage).</summary>
+    public void OnWrite(string propertyPath, Action<SimulatedODrive> handler)
+    {
+        ArgumentNullException.ThrowIfNull(handler);
+        PropertyNode property = Schema.GetProperty(propertyPath);
+        lock (_gate)
+        {
+            _writeHooks[property.Id] = handler;
         }
     }
 
@@ -276,8 +289,50 @@ public sealed class SimulatedODrive
         if (endpoint.IsWritable && input.Length >= size)
         {
             _values[endpointId] = input[..size].ToArray();
+            if (_writeHooks.TryGetValue(endpointId, out Action<SimulatedODrive>? hook))
+            {
+                hook(this);
+            }
         }
         return _values[endpointId].AsSpan(0, Math.Min(size, responseSize)).ToArray();
+    }
+
+    /// <summary>
+    /// Machine d'états d'axe minimale : IDLE et CLOSED_LOOP_CONTROL seulement. L'axe consomme
+    /// <c>requested_state</c> et le remet à UNDEFINED (<c>ref/ODrive/Firmware/MotorControl/axis.cpp:485</c>).
+    /// Les calibrations et le modèle moteur viendront avec les phases qui en ont besoin.
+    /// </summary>
+    private void RegisterAxisStateMachine()
+    {
+        const byte Undefined = 0, Idle = 1, ClosedLoopControl = 8;
+        foreach (ObjectNode axis in Schema.Root.Members.OfType<ObjectNode>())
+        {
+            string prefix = axis.Path + ".";
+            if (Schema.FindProperty(prefix + "requested_state") is not { } requested
+                || Schema.FindProperty(prefix + "current_state") is null
+                || Schema.FindProperty(prefix + "motor.is_armed") is null)
+            {
+                continue;
+            }
+
+            _writeHooks[requested.Id] = device =>
+            {
+                byte state = (byte)device.Get(prefix + "requested_state");
+                device.Set(prefix + "requested_state", Undefined);
+                bool hasError = Schema.FindProperty(prefix + "error") is not null
+                    && Convert.ToUInt64(device.Get(prefix + "error"), System.Globalization.CultureInfo.InvariantCulture) != 0;
+                if (state == ClosedLoopControl && !hasError)
+                {
+                    device.Set(prefix + "current_state", ClosedLoopControl);
+                    device.Set(prefix + "motor.is_armed", true);
+                }
+                else if (state is Idle or ClosedLoopControl)
+                {
+                    device.Set(prefix + "current_state", Idle);
+                    device.Set(prefix + "motor.is_armed", false);
+                }
+            };
+        }
     }
 
     private void RegisterBuiltInFunctions()
