@@ -4,6 +4,8 @@
     <!-- Version de plateforme Windows 10 exigée par SkiaSharp.Views.WPF (dépendance de ScottPlot.WPF). -->
     <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <UseWPF>true</UseWPF>
+    <!-- CA1859 : les commandes [RelayCommand] renvoient Task par convention. -->
+    <NoWarn>$(NoWarn);CA1859</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.*" />
@@ -11,6 +13,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.*" />
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="../ODrive.Model/ODrive.Model.csproj" />
     <ProjectReference Include="../ODrive.Tuning/ODrive.Tuning.csproj" />
     <ProjectReference Include="../ODrive.Can/ODrive.Can.csproj" />
   </ItemGroup>

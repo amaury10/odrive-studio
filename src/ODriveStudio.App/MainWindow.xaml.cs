@@ -1,5 +1,6 @@
 using System.Windows;
-using ODrive.Model;
+using System.Windows.Input;
+using ODriveStudio.App.ViewModels;
 
 namespace ODriveStudio.App;
 
@@ -8,9 +9,16 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        StatusText.Text =
-            $"ODrive Studio — firmware {ODriveInterface.FirmwareTag}\n" +
-            $"{ODriveInterface.Properties.Count} propriétés, {ODriveInterface.Functions.Count} fonctions, " +
-            $"{ODriveEnums.All.Count} enums connus.\nConnexion : phase 1 de la feuille de route.";
+    }
+
+    // Arrêt d'urgence global (docs/SAFETY.md) : traité en « preview » pour passer avant tout contrôle qui
+    // aurait le focus. L'événement n'est pas marqué traité : Échap garde aussi son effet habituel
+    // (fermer une liste déroulante, annuler une saisie).
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Escape && !e.IsRepeat && DataContext is MainViewModel main)
+        {
+            main.EmergencyStopCommand.Execute(null);
+        }
     }
 }

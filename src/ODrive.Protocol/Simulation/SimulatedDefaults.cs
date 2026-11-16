@@ -40,6 +40,7 @@ internal static class SimulatedDefaults
         ["fw_version_revision"] = 6,
         ["fw_version_unreleased"] = 0,
         ["brake_resistor_armed"] = false,
+        ["otp_valid"] = true,                               // carte officielle (MotorControl/odrive_main.h:246)
         ["config.enable_brake_resistor"] = false,           // MotorControl/odrive_main.h:82
         ["config.brake_resistance"] = 2.0f,                 // Board/v3/Inc/board.h:41
         ["config.dc_bus_undervoltage_trip_level"] = 8.0f,   // board.h:47
@@ -53,6 +54,7 @@ internal static class SimulatedDefaults
     private static readonly Dictionary<string, object> Axis = new()
     {
         ["current_state"] = 1,                              // AXIS_STATE_IDLE
+        ["motor.fet_thermistor.temperature"] = 25.0f,       // température ambiante
         ["config.startup_closed_loop_control"] = false,     // MotorControl/axis.hpp:74
         ["config.enable_watchdog"] = false,                 // axis.hpp:87
         ["config.watchdog_timeout"] = 0.0f,                 // axis.hpp:86

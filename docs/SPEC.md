@@ -5,6 +5,12 @@ Cible : ODrive v3.6 (56 V ou 24 V), firmware 0.5.6, Windows 10/11 x64.
 ## 1. Connexion et gestion des cartes
 - Détection automatique USB : VID `0x1209`, PID `0x0D32`, interface native n° 2 (bulk `0x03` OUT / `0x83` IN), énumérée par son `DeviceInterfaceGUID` `{EA0BD5C3-50F3-4888-84B4-74E50E1649DB}` — voir `docs/PROTOCOL_NATIVE.md` §Transport USB.
 - Plusieurs ODrive en parallèle, identifiés par numéro de série (affiché en hexa comme `odrivetool`).
+- Cartes non officielles (clones) : la carte expose `otp_valid`, faux quand la zone OTP du STM32 n'a pas été
+  programmée par ODrive Robotics (`ref/ODrive/Firmware/MotorControl/odrive_main.h:246`). `odrivetool` les
+  nomme alors `dev0` au lieu de `odrv0` (`ref/ODrive/tools/odrive/shell.py:83-89`) ; le protocole est le
+  même. L'outil affiche « carte non officielle » dans le titre, sans rien restreindre. Attention : la
+  version matérielle (`hw_version_*`) est fixée à la compilation du firmware (`odrive_main.h:210-212`) et non
+  lue sur la carte : elle décrit le firmware flashé, pas forcément la carte réelle.
 - Lecture et mise en cache de l'arbre JSON (endpoint 0) ; cache indexé par `json_version_id` (u32 lu en une requête, offset `0xFFFFFFFF`).
 - Infos carte : version hardware, version firmware, numéro de série, `vbus_voltage`, `ibus`.
 - Reconnexion automatique après un reboot ou un `save_configuration`.
