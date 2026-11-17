@@ -26,8 +26,14 @@
   redémarre le périphérique, une fois par carte et par port USB ; ou Zadig, qui réinstalle WinUSB avec un
   GUID à lui. L'énumération (`WinUsbEnumerator`) cherche donc sous le GUID du firmware **et** sous tous les
   GUID enregistrés pour les interfaces `MI_02` présentes, et ne garde que les chemins `vid_1209&pid_0d32&mi_02`.
-  `UsbDriverDiagnosis` distingue trois cas : GUID absent, autre pilote que WinUSB, GUID écrit mais pas
-  encore publié (rebrancher).
+  `UsbDriverDiagnosis` distingue quatre cas : aucun pilote, GUID absent, autre pilote que WinUSB, GUID
+  écrit mais pas encore publié (rebrancher).
+- **Avec le firmware 0.5.6 officiel, Windows n'installe aucun pilote.** Constaté sur une v3.6 après passage
+  d'un 0.5.1 non officiel au 0.5.6 : l'interface 2 n'a plus l'identifiant compatible `USB\MS_COMP_WINUSB`
+  (installation en échec, `STATUS_PNP_NO_COMPAT_DRIVERS`), bien que `usbd_cdc.c:823-845` le prévoie — cause
+  non établie. `WinUsbDriverInstaller` y associe l'entrée générique de `winusb.inf` (SetupAPI +
+  `DiInstallDevice`, droits administrateur), puis le GUID est enregistré comme ci-dessus : c'est ce que font
+  `odrive-cli fix-usb` et le bouton « Corriger » de l'application. Vérifié sur cette carte.
   Windows ne lit ces descripteurs qu'une fois par périphérique (cache dans
   `HKLM\SYSTEM\CurrentControlSet\Control\usbflags\12090D32xxxx`).
 - Sur USB bulk, **pas de tramage** : un transfert = un paquet.

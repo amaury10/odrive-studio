@@ -83,7 +83,7 @@ réponse à l'échelon sans oscillation, roue soulevée.
 **Acceptation (matériel) :** la mini-voiture roue soulevée répond à accélérer / freiner / marche arrière
 depuis l'onglet CAN ; coupure de l'envoi → arrêt par watchdog.
 
-## Phase 9 — Mise à jour firmware DFU (avancée à la demande ; écriture pas encore faite sur une carte)
+## Phase 9 — Mise à jour firmware DFU (avancée à la demande ; écriture faite sur une carte, restauration non essayée)
 - [x] Protocole DfuSe du bootloader ROM STM32 (`ODrive.Protocol/Dfu`), d'après `tools/odrive/dfuse/DfuDevice.py`
       et `tools/odrive/dfu.py` : effacement, écriture, relecture, démarrage de l'application, version
       matérielle en OTP.
@@ -99,7 +99,10 @@ depuis l'onglet CAN ; coupure de l'envoi → arrêt par watchdog.
 - [ ] Levée de la protection en lecture (RDP) : volontairement absente, elle efface toute la flash.
 
 **Vérifié sur une v3.6 non officielle (firmware 0.5.1) :** `enter-dfu`, `dfu` (OTP vierge), `backup` (deux
-lectures identiques), `leave-dfu`, retour en mode normal. **Pas encore vérifié sur une carte :** l'écriture
-(`flash`), validée seulement sur le bootloader simulé.
+lectures identiques), `leave-dfu`, retour en mode normal ; puis, depuis l'onglet Firmware, écriture de
+`ODriveFirmware_v3.6-56V.elf` (fw-v0.5.6) : la carte démarre et se connecte en 0.5.6 après réparation du
+pilote (voir `docs/PROTOCOL_NATIVE.md` §Transport USB). La carte n'a pas redémarré seule après l'écriture :
+il a fallu couper et remettre l'alimentation — cause non établie. **Pas encore vérifié sur une carte :** la
+restauration d'une sauvegarde `.bin`.
 **Acceptation (matériel) :** sauvegarde, écriture du firmware officiel 0.5.6, `odrive-cli check` OK
 (`json_version_id` = 0xC1A0AD28), puis restauration de la sauvegarde et retour à l'état initial.
