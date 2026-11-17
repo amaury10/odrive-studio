@@ -17,11 +17,11 @@ Chaque phase se termine par : build sans warning, tests verts, critères d'accep
       le portage C# le reproduit à l'octet près.
 **Acceptation :** solution qui compile ; enums et flags d'erreur générés ; docs sans ⚠ sur le protocole.
 
-## Phase 1 — Protocole natif et connexion (code terminé, acceptation matérielle à faire)
+## Phase 1 — Protocole natif et connexion ✅ (acceptée sur une v3.6 en firmware 0.5.6 : `odrive-cli check` OK, `json_version_id` = 0xC1A0AD28, ~4 700 lectures/s)
 - [x] PacketCodec + CRC + tests (vecteurs déduits de `crc.hpp` et `legacy_protocol.cpp` : il n'existe pas
       d'implémentation Python pure en 0.5.6).
-- [x] WinUsbTransport (énumération, ouverture, bulk in/out, délais d'attente, déconnexion) — écrit, **pas
-      encore essayé sur une carte** (les tests unitaires ne touchent pas l'USB).
+- [x] WinUsbTransport (énumération, ouverture, bulk in/out, délais d'attente, déconnexion) — vérifié sur une carte
+      (les tests unitaires ne touchent pas l'USB).
 - [x] Lecture du JSON, arbre dynamique (`EndpointSchema`), lecture / écriture / appel de fonction
       (`ODriveDevice`), cache du JSON par `json_version_id` (en mémoire ; cache disque en phase 2).
 - [x] `SimulatedODrive` + `SimulatedTransport` basés sur le JSON de référence : mêmes règles de trailer, de
