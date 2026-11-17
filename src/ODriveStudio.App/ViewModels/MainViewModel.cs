@@ -119,11 +119,14 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IUserDialogs _dialogs;
     private readonly SynchronizationContext? _ui;
     private readonly Func<string?> _driverHint;
+    private readonly IUsbDriverRepair? _usbRepair;
 
     /// <param name="driverHint">Diagnostic du pilote USB quand aucune carte n'est accessible (SPEC §1), ou <c>null</c>.</param>
+    /// <param name="usbRepair">Correction du GUID d'interface WinUSB manquant, ou <c>null</c> si indisponible.</param>
     public MainViewModel(DeviceManager manager, WriteJournal journal, SafetyGuard guard, IUserDialogs dialogs,
-        Func<string?>? driverHint = null)
+        Func<string?>? driverHint = null, IUsbDriverRepair? usbRepair = null)
     {
+        _usbRepair = usbRepair;
         _manager = manager;
         _journal = journal;
         _guard = guard;
@@ -153,6 +156,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [ObservableProperty] private string _statusMessage = "Recherche d'une carte ODrive…";
     [ObservableProperty] private string _connectionHint = "";
+
+    /// <summary>Vrai quand la correction du pilote USB est proposée (aucune carte ouverte, GUID manquant).</summary>
+    [ObservableProperty] private bool _canRepairUsb;
     [ObservableProperty] private int _selectedTabIndex;
 
     public bool HasDevice => SelectedDevice is not null;
@@ -199,14 +205,47 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Enregistre le GUID d'interface WinUSB manquant. L'application reste sans privilèges : seule cette
+    /// opération demande les droits administrateur (invite UAC), après accord de l'utilisateur.
+    /// </summary>
+    [RelayCommand]
+    private async Task RepairUsbAsync()
+    {
+        if (_usbRepair is null)
+        {
+            return;
+        }
+        if (!_dialogs.Confirm("Corriger le pilote USB",
+            "Windows a chargé le pilote WinUSB de la carte, mais sans GUID d'interface (défaut du firmware) : "
+            + "la carte ne peut pas être ouverte.\n\nLa correction écrit une valeur dans le registre "
+            + "(DeviceInterfaceGUIDs) puis redémarre le périphérique USB. Windows va demander les droits "
+            + "administrateur pour cette seule opération.\n\nContinuer ?"))
+        {
+            return;
+        }
+
+        StatusMessage = "Correction du pilote USB en cours…";
+        StatusMessage = await _usbRepair.RunElevatedAsync() switch
+        {
+            UsbRepairOutcome.Repaired => "Pilote USB corrigé : la carte va être détectée (sinon, rebrancher son câble USB).",
+            UsbRepairOutcome.Declined => "Correction du pilote USB annulée : élévation de droits refusée.",
+            _ => "La correction du pilote USB a échoué. Essayer « odrive-cli fix-usb » dans un terminal administrateur.",
+        };
+        UpdateConnectionHint();
+    }
+
     /// <summary>Met à jour l'aide affichée quand aucune carte n'est connectée (erreurs d'ouverture, pilote).</summary>
     public void UpdateConnectionHint()
     {
         if (Devices.Count > 0)
         {
             ConnectionHint = "";
+            CanRepairUsb = false;
             return;
         }
+
+        CanRepairUsb = _usbRepair?.IsNeeded == true;
 
         var lines = new List<string> { "Aucune carte ODrive connectée. Brancher la carte en USB : elle est détectée automatiquement." };
         lines.AddRange(_manager.LastErrors.Values.Distinct().Select(e => "• " + e));

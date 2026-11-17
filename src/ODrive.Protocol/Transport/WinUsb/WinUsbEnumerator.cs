@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32;
 
@@ -149,6 +150,41 @@ public static class WinUsbEnumerator
         {
             throw new UnauthorizedAccessException("Droits administrateur requis.", e);
         }
+    }
+
+    /// <summary>Vrai si l'interface est pilotée par WinUSB mais n'a aucun GUID d'interface.</summary>
+    public static bool NeedsInterfaceGuid(NativeInterfaceStatus status)
+    {
+        ArgumentNullException.ThrowIfNull(status);
+        return status.IsWinUsb && status.InterfaceGuids.Count == 0;
+    }
+
+    /// <summary>
+    /// Enregistre le GUID de toutes les interfaces natives présentes qui en manquent, puis redémarre chaque
+    /// périphérique (<c>pnputil /restart-device</c>) pour que WinUSB le publie. Droits administrateur requis.
+    /// </summary>
+    /// <returns>Identifiants d'instance corrigés.</returns>
+    /// <exception cref="UnauthorizedAccessException">Le processus n'est pas administrateur.</exception>
+    public static IReadOnlyList<string> RepairMissingInterfaceGuids()
+    {
+        var repaired = new List<string>();
+        foreach (NativeInterfaceStatus status in FindNativeInterfaces())
+        {
+            if (!NeedsInterfaceGuid(status))
+            {
+                continue;
+            }
+
+            RegisterInterfaceGuid(status.InstanceId);
+            repaired.Add(status.InstanceId);
+
+            var restart = new ProcessStartInfo("pnputil.exe") { UseShellExecute = false, CreateNoWindow = true };
+            restart.ArgumentList.Add("/restart-device");
+            restart.ArgumentList.Add(status.InstanceId);
+            using Process? process = Process.Start(restart);
+            process?.WaitForExit(10_000);
+        }
+        return repaired;
     }
 
     private static string EnumKeyPath(string instanceId) => @"SYSTEM\CurrentControlSet\Enum\" + instanceId;

@@ -9,6 +9,19 @@ using Xunit;
 
 namespace ODriveStudio.App.Tests;
 
+internal sealed class FakeRepair : IUsbDriverRepair
+{
+    public bool IsNeeded { get; set; } = true;
+    public UsbRepairOutcome Outcome { get; set; } = UsbRepairOutcome.Repaired;
+    public int Runs { get; private set; }
+
+    public Task<UsbRepairOutcome> RunElevatedAsync()
+    {
+        Runs++;
+        return Task.FromResult(Outcome);
+    }
+}
+
 internal sealed class FakeDialogs : IUserDialogs
 {
     public bool Answer { get; set; } = true;
@@ -379,13 +392,13 @@ public class MainViewModelTests
     }
 
     private static (MainViewModel Main, DeviceManager Manager, SimulatedODrive Board, WriteJournal Journal, FakeDialogs Dialogs) Create(
-        Func<string?>? driverHint = null)
+        Func<string?>? driverHint = null, IUsbDriverRepair? repair = null)
     {
         var board = SimulatedODrive.CreateReference();
         var journal = new WriteJournal();
         var dialogs = new FakeDialogs();
         var manager = new DeviceManager([new SimulatedTransportSource(board)], new ODriveDeviceOptions { Journal = journal });
-        var main = new MainViewModel(manager, journal, new SafetyGuard(), dialogs, driverHint)
+        var main = new MainViewModel(manager, journal, new SafetyGuard(), dialogs, driverHint, repair)
         {
             PollingPeriod = TimeSpan.FromMilliseconds(10),
         };
@@ -515,5 +528,58 @@ public class MainViewModelTests
         main.UpdateConnectionHint();
 
         main.ConnectionHint.Should().Contain("Zadig");
+    }
+
+    [Fact]
+    public void Usb_repair_is_offered_only_when_needed_and_no_board_is_connected()
+    {
+        var repair = new FakeRepair { IsNeeded = false };
+        var (main, _, _, _, _) = Create(repair: repair);
+        main.CanRepairUsb.Should().BeFalse();
+
+        repair.IsNeeded = true;
+        main.UpdateConnectionHint();
+
+        main.CanRepairUsb.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Usb_repair_is_hidden_once_a_board_is_connected()
+    {
+        var (main, manager, _, _, _) = Create(repair: new FakeRepair());
+        main.CanRepairUsb.Should().BeTrue();
+
+        await manager.ScanAsync();
+
+        main.CanRepairUsb.Should().BeFalse();
+        await manager.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Usb_repair_asks_before_requesting_administrator_rights()
+    {
+        var repair = new FakeRepair();
+        var (main, _, _, _, dialogs) = Create(repair: repair);
+        dialogs.Answer = false;
+
+        await main.RepairUsbCommand.ExecuteAsync(null);
+
+        dialogs.Questions.Should().ContainSingle().Which.Should().Contain("administrateur");
+        repair.Runs.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(UsbRepairOutcome.Repaired, "corrigé")]
+    [InlineData(UsbRepairOutcome.Declined, "refusée")]
+    [InlineData(UsbRepairOutcome.Failed, "échoué")]
+    public async Task Usb_repair_reports_its_outcome(UsbRepairOutcome outcome, string expected)
+    {
+        var repair = new FakeRepair { Outcome = outcome };
+        var (main, _, _, _, _) = Create(repair: repair);
+
+        await main.RepairUsbCommand.ExecuteAsync(null);
+
+        repair.Runs.Should().Be(1);
+        main.StatusMessage.Should().Contain(expected);
     }
 }

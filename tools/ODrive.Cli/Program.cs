@@ -43,7 +43,7 @@ try
         _ => Help(),
     };
 }
-catch (Exception e) when (e is IOException or ODriveProtocolException or TimeoutException)
+catch (Exception e) when (e is IOException or ODriveProtocolException or TimeoutException or KeyNotFoundException)
 {
     Console.Error.WriteLine("Erreur : " + e.Message);
     return 1;
@@ -92,36 +92,26 @@ int List()
 // puis redémarre le périphérique pour que WinUSB le publie.
 int FixUsb()
 {
-    var targets = WinUsbEnumerator.FindNativeInterfaces()
-        .Where(status => status.IsWinUsb && status.InterfaceGuids.Count == 0)
-        .ToList();
-    if (targets.Count == 0)
+    IReadOnlyList<string> repaired;
+    try
+    {
+        repaired = WinUsbEnumerator.RepairMissingInterfaceGuids();
+    }
+    catch (UnauthorizedAccessException)
+    {
+        Console.Error.WriteLine("Droits administrateur requis : relancer cette commande dans un terminal "
+            + "ouvert « en tant qu'administrateur ».");
+        return 1;
+    }
+
+    if (repaired.Count == 0)
     {
         Console.WriteLine("Rien à corriger : aucune interface native pilotée par WinUSB sans GUID d'interface.");
         return List();
     }
-
-    foreach (NativeInterfaceStatus status in targets)
+    foreach (string instance in repaired)
     {
-        try
-        {
-            WinUsbEnumerator.RegisterInterfaceGuid(status.InstanceId);
-        }
-        catch (UnauthorizedAccessException)
-        {
-            Console.Error.WriteLine("Droits administrateur requis : relancer cette commande dans un terminal "
-                + "ouvert « en tant qu'administrateur ».");
-            return 1;
-        }
-        Console.WriteLine($"GUID {WinUsbEnumerator.DeviceInterfaceGuid:B} enregistré pour {status.InstanceId}");
-
-        using Process? restart = Process.Start(new ProcessStartInfo("pnputil.exe")
-        {
-            ArgumentList = { "/restart-device", status.InstanceId },
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        });
-        restart?.WaitForExit(10_000);
+        Console.WriteLine($"GUID {WinUsbEnumerator.DeviceInterfaceGuid:B} enregistré pour {instance}");
     }
 
     // Laisse à Windows le temps de redémarrer le périphérique.

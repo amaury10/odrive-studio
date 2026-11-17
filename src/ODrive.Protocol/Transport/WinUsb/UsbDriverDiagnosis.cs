@@ -49,8 +49,8 @@ public static class UsbDriverDiagnosis
         {
             return "Une carte ODrive est branchée et son pilote WinUSB est chargé, mais Windows n'a enregistré "
                 + "aucun GUID d'interface pour elle (défaut du firmware 0.5.6) : elle ne peut pas être ouverte.\n"
-                + "Correction, une fois par carte et par port USB : lancer « odrive-cli fix-usb » dans un "
-                + "terminal administrateur.";
+                + "Correction, une fois par carte et par port USB : bouton « Corriger » d'ODrive Studio, ou "
+                + "« odrive-cli fix-usb » dans un terminal administrateur.";
         }
 
         return "Une carte ODrive est branchée et son GUID d'interface est enregistré, mais Windows ne le publie "

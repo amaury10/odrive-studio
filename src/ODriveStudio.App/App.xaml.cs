@@ -11,8 +11,8 @@ using ODriveStudio.App.ViewModels;
 namespace ODriveStudio.App;
 
 /// <summary>
-/// Point d'entrée WPF. Option de ligne de commande <c>--sim</c> : ajoute une carte simulée (développement
-/// sans matériel).
+/// Point d'entrée WPF. Options de ligne de commande : <c>--sim</c> ajoute une carte simulée (développement
+/// sans matériel) ; <c>--fix-usb</c> est réservée à l'instance élevée qui corrige le pilote USB.
 /// </summary>
 #pragma warning disable CA1001 // _manager est libéré dans OnExit : Application n'est pas IDisposable.
 public partial class App : Application
@@ -26,6 +26,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Instance élevée lancée par le bouton « Corriger » : écrit le registre et se termine, sans fenêtre.
+        if (e.Args.Contains(ElevatedUsbDriverRepair.Argument))
+        {
+            Shutdown(ElevatedUsbDriverRepair.RunAsElevatedInstance());
+            return;
+        }
+
         var journal = new WriteJournal();
         var sources = new List<ITransportSource> { new WinUsbTransportSource() };
         if (e.Args.Contains("--sim"))
@@ -34,7 +41,8 @@ public partial class App : Application
         }
 
         _manager = new DeviceManager(sources, new ODriveDeviceOptions { Journal = journal });
-        _main = new MainViewModel(_manager, journal, new SafetyGuard(), new WpfUserDialogs(), DriverHint);
+        _main = new MainViewModel(_manager, journal, new SafetyGuard(), new WpfUserDialogs(), DriverHint,
+            new ElevatedUsbDriverRepair());
 
         // Une erreur imprévue dans une commande ne doit pas fermer l'outil pendant qu'un moteur tourne :
         // l'arrêt d'urgence doit rester disponible.
