@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ODrive.Model;
 using ODrive.Protocol;
+using ODrive.Protocol.Dfu;
 using ODriveStudio.App.Services;
 
 namespace ODriveStudio.App.ViewModels;
@@ -124,8 +125,12 @@ public sealed partial class MainViewModel : ObservableObject
     /// <param name="driverHint">Diagnostic du pilote USB quand aucune carte n'est accessible (SPEC §1), ou <c>null</c>.</param>
     /// <param name="usbRepair">Correction du GUID d'interface WinUSB manquant, ou <c>null</c> si indisponible.</param>
     public MainViewModel(DeviceManager manager, WriteJournal journal, SafetyGuard guard, IUserDialogs dialogs,
-        Func<string?>? driverHint = null, IUsbDriverRepair? usbRepair = null)
+        Func<string?>? driverHint = null, IUsbDriverRepair? usbRepair = null, IDfuDeviceSource? dfuSource = null)
     {
+        // Sans source DFU (tests) : un bootloader simulé qui n'est jamais présent.
+        Firmware = new FirmwareViewModel(dfuSource ?? new SimulatedDfuSource(new SimulatedDfuDevice()), dialogs,
+            () => SelectedDevice?.Device, () => SelectedDevice?.HardwareVersion,
+            message => StatusMessage = message);
         _usbRepair = usbRepair;
         _manager = manager;
         _journal = journal;
@@ -146,6 +151,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ObservableCollection<DeviceViewModel> Devices { get; } = [];
     public ObservableCollection<JournalLineViewModel> Journal { get; } = [];
+
+    /// <summary>Onglet « Firmware » : mode DFU, sauvegarde et écriture de la flash.</summary>
+    public FirmwareViewModel Firmware { get; }
 
     /// <summary>Période de rafraîchissement des vues d'une carte.</summary>
     public TimeSpan PollingPeriod { get; init; } = TimeSpan.FromMilliseconds(200);

@@ -46,6 +46,7 @@ try
         "backup" => Backup(),
         "flash" => Flash(),
         "leave-dfu" => LeaveDfu(),
+        "image" => Image(),
         _ => Help(),
     };
 }
@@ -69,7 +70,8 @@ int Help()
         odrive-cli enter-dfu                 redémarre la carte dans son bootloader
         odrive-cli dfu                       décrit la carte en mode DFU (régions mémoire, version en OTP)
         odrive-cli backup [--out f.bin]      sauvegarde toute la flash (firmware + configuration)
-        odrive-cli flash <f.hex|f.bin> --yes efface la flash, écrit et vérifie ; --stay pour rester en DFU
+        odrive-cli flash <f.elf|.hex|.bin> --yes efface la flash, écrit et vérifie ; --stay pour rester en DFU
+        odrive-cli image <fichier>           décrit un fichier firmware (.elf, .hex) ou une sauvegarde (.bin)
         odrive-cli leave-dfu                 quitte le bootloader et démarre le firmware
 
         --sim : utilise la carte simulée au lieu de l'USB.
@@ -230,7 +232,7 @@ int Flash()
     string? file = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal) && a != outPath);
     if (file is null || !args.Contains("--yes"))
     {
-        Console.Error.WriteLine("Usage : odrive-cli flash <fichier.hex|fichier.bin> --yes [--stay]");
+        Console.Error.WriteLine("Usage : odrive-cli flash <fichier.elf|.hex|.bin> --yes [--stay]");
         Console.Error.WriteLine("Efface TOUTE la flash de la carte (firmware et configuration). Faire « backup » avant.");
         return 1;
     }
@@ -253,6 +255,28 @@ int Flash()
         Console.WriteLine("Bootloader quitté : la carte redémarre sur le nouveau firmware.");
     }
     return 0;
+}
+
+int Image()
+{
+    if (args.Length < 2)
+    {
+        Console.Error.WriteLine("Usage : odrive-cli image <fichier.elf|.hex|.bin>");
+        return 1;
+    }
+
+    FirmwareImage image = FirmwareImage.Load(args[1]);
+    foreach (FirmwareSegment segment in image.Segments)
+    {
+        Console.WriteLine($"  0x{segment.Address:X8} - 0x{segment.End - 1:X8}  {segment.Data.Length} octets  "
+            + "SHA-256 " + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(segment.Data)));
+    }
+    bool plausible = image.LooksLikeFirmware(out string? reason);
+    Console.WriteLine(plausible ? "  Table de vecteurs valide." : "  PAS un firmware : " + reason);
+    Console.WriteLine(FirmwareImage.HardwareVersionFromFileName(args[1]) is { } version
+        ? $"  Carte visée d'après le nom : v{version.Major}.{version.Minor}-{version.Variant}V"
+        : "  Carte visée : le nom du fichier ne la donne pas.");
+    return plausible ? 0 : 2;
 }
 
 int LeaveDfu()

@@ -13,8 +13,9 @@ public sealed record FirmwareSegment(uint Address, byte[] Data)
 }
 
 /// <summary>
-/// Image à écrire dans la flash : firmware au format Intel HEX (fichiers publiés par ODrive Robotics) ou
-/// copie binaire brute de la flash (sauvegarde faite par <see cref="FirmwareUpdater.ReadFlash"/>).
+/// Image à écrire dans la flash : firmware au format ELF (seul format publié par ODrive Robotics pour la
+/// version 0.5.6) ou Intel HEX (versions plus anciennes), ou copie binaire brute de la flash (sauvegarde
+/// faite par <see cref="FirmwareUpdater.ReadFlash"/>).
 /// </summary>
 public sealed partial class FirmwareImage
 {
@@ -25,7 +26,7 @@ public sealed partial class FirmwareImage
     /// <summary>Blocs de l'image, par adresse croissante, sans recouvrement.</summary>
     public IReadOnlyList<FirmwareSegment> Segments { get; }
 
-    /// <summary>Charge un fichier <c>.hex</c> (Intel HEX) ou <c>.bin</c> (flash brute depuis 0x08000000).</summary>
+    /// <summary>Charge un fichier <c>.elf</c>, <c>.hex</c> (Intel HEX) ou <c>.bin</c> (flash brute depuis 0x08000000).</summary>
     public static FirmwareImage Load(string path)
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
@@ -36,10 +37,13 @@ public sealed partial class FirmwareImage
                 {
                     return FromIntelHex(reader);
                 }
+            case ".ELF":
+                return FromElf(File.ReadAllBytes(path));
             case ".BIN":
                 return FromBinary(File.ReadAllBytes(path));
             default:
-                throw new InvalidDataException("Format non pris en charge : choisir un fichier .hex (firmware) ou .bin (sauvegarde).");
+                throw new InvalidDataException(
+                    "Format non pris en charge : choisir un fichier .elf ou .hex (firmware) ou .bin (sauvegarde).");
         }
     }
 
@@ -48,6 +52,60 @@ public sealed partial class FirmwareImage
     {
         ArgumentNullException.ThrowIfNull(data);
         return new FirmwareImage([new FirmwareSegment(address, data)]);
+    }
+
+    /// <summary>
+    /// Lit un exécutable ELF 32 bits ARM : chaque segment <c>PT_LOAD</c> qui a un contenu dans le fichier est
+    /// placé à son adresse physique (<c>p_paddr</c>), celle où il est stocké en flash. C'est ce que fait
+    /// <c>objcopy -O ihex</c>, utilisé par le Makefile du firmware pour produire les .hex.
+    /// </summary>
+    /// <exception cref="InvalidDataException">Le fichier n'est pas un ELF 32 bits ARM, ou il est tronqué.</exception>
+    public static FirmwareImage FromElf(ReadOnlySpan<byte> file)
+    {
+        const int headerSize = 52, entrySize = 32;
+        const uint programLoad = 1;
+        const ushort machineArm = 40;
+
+        if (file.Length < headerSize || file[0] != 0x7F || file[1] != 'E' || file[2] != 'L' || file[3] != 'F')
+        {
+            throw new InvalidDataException("Ce fichier n'est pas un exécutable ELF.");
+        }
+        if (file[4] != 1 || file[5] != 1)
+        {
+            throw new InvalidDataException("ELF non pris en charge : il faut un ELF 32 bits petit-boutiste (ARM Cortex-M).");
+        }
+        if (BinaryPrimitives.ReadUInt16LittleEndian(file[18..]) != machineArm)
+        {
+            throw new InvalidDataException("Cet ELF n'est pas destiné à un processeur ARM.");
+        }
+
+        uint tableOffset = BinaryPrimitives.ReadUInt32LittleEndian(file[28..]);
+        int size = BinaryPrimitives.ReadUInt16LittleEndian(file[42..]);
+        int count = BinaryPrimitives.ReadUInt16LittleEndian(file[44..]);
+        if (size < entrySize || tableOffset + (long)size * count > file.Length)
+        {
+            throw new InvalidDataException("ELF tronqué : table des segments incomplète.");
+        }
+
+        var chunks = new List<FirmwareSegment>();
+        for (int i = 0; i < count; i++)
+        {
+            ReadOnlySpan<byte> entry = file.Slice((int)tableOffset + i * size, entrySize);
+            uint type = BinaryPrimitives.ReadUInt32LittleEndian(entry);
+            uint offset = BinaryPrimitives.ReadUInt32LittleEndian(entry[4..]);
+            uint physicalAddress = BinaryPrimitives.ReadUInt32LittleEndian(entry[12..]);
+            uint fileSize = BinaryPrimitives.ReadUInt32LittleEndian(entry[16..]);
+            if (type != programLoad || fileSize == 0)
+            {
+                continue;
+            }
+            if (offset + (long)fileSize > file.Length)
+            {
+                throw new InvalidDataException($"ELF tronqué : le segment {i} dépasse la fin du fichier.");
+            }
+            chunks.Add(new FirmwareSegment(physicalAddress, file.Slice((int)offset, (int)fileSize).ToArray()));
+        }
+        return new FirmwareImage(Merge(chunks));
     }
 
     /// <summary>Lit un fichier Intel HEX (enregistrements 00, 01, 02 et 04 ; 03 et 05 ignorés).</summary>
@@ -217,7 +275,7 @@ public sealed partial class FirmwareImage
         {
             if (pending.Count > 0 && chunk.Address < start + (uint)pending.Count)
             {
-                throw new InvalidDataException($"Intel HEX : données en double à l'adresse 0x{chunk.Address:X8}.");
+                throw new InvalidDataException($"Données en double à l'adresse 0x{chunk.Address:X8}.");
             }
             if (pending.Count > 0 && chunk.Address != start + (uint)pending.Count)
             {

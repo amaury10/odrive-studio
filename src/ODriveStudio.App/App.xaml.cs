@@ -3,6 +3,7 @@ using System.Windows;
 using System.Windows.Threading;
 using ODrive.Model;
 using ODrive.Protocol;
+using ODrive.Protocol.Dfu;
 using ODrive.Protocol.Simulation;
 using ODrive.Protocol.Transport.WinUsb;
 using ODriveStudio.App.Services;
@@ -35,14 +36,15 @@ public partial class App : Application
 
         var journal = new WriteJournal();
         var sources = new List<ITransportSource> { new WinUsbTransportSource() };
+        IDfuDeviceSource dfuSource = new WinUsbDfuSource();
         if (e.Args.Contains("--sim"))
         {
-            sources.Add(new SimulatedTransportSource(SimulatedODrive.CreateReference()));
+            dfuSource = new CompositeDfuSource([dfuSource, AddSimulatedBoard(sources)]);
         }
 
         _manager = new DeviceManager(sources, new ODriveDeviceOptions { Journal = journal });
         _main = new MainViewModel(_manager, journal, new SafetyGuard(), new WpfUserDialogs(), DriverHint,
-            new ElevatedUsbDriverRepair());
+            new ElevatedUsbDriverRepair(), dfuSource);
 
         // Une erreur imprévue dans une commande ne doit pas fermer l'outil pendant qu'un moteur tourne :
         // l'arrêt d'urgence doit rester disponible.
@@ -57,8 +59,46 @@ public partial class App : Application
 
         _manager.Start(TimeSpan.FromSeconds(1));
         _hintTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _hintTimer.Tick += (_, _) => _main.UpdateConnectionHint();
+        _hintTimer.Tick += (_, _) =>
+        {
+            _main.UpdateConnectionHint();
+            _main.Firmware.Refresh();
+        };
         _hintTimer.Start();
+    }
+
+    // Carte simulée complète : en mode normal, puis dans son bootloader après enter_dfu_mode(), puis de
+    // nouveau en mode normal quand le bootloader démarre l'application.
+    private static SimulatedDfuSource AddSimulatedBoard(List<ITransportSource> sources)
+    {
+        SimulatedODrive board = SimulatedODrive.CreateReference();
+        var normal = new SimulatedTransportSource(board);
+        sources.Add(normal);
+
+        var bootloader = new SimulatedDfuDevice();
+        // Faux firmware : une table de vecteurs plausible suivie d'un motif.
+        Span<byte> flash = bootloader.Flash.AsSpan(0, 200 * 1024);
+        for (int i = 0; i < flash.Length; i++)
+        {
+            flash[i] = (byte)(i * 31);
+        }
+        BitConverter.TryWriteBytes(flash, 0x2002_0000u);
+        BitConverter.TryWriteBytes(flash[4..], 0x0800_0101u);
+
+        var dfu = new SimulatedDfuSource(bootloader);
+        board.OnCall("enter_dfu_mode", _ =>
+        {
+            normal.IsPresent = false;
+            bootloader.Reenter();
+            dfu.IsPresent = true;
+            board.Reboot();
+        });
+        bootloader.Left += (_, _) =>
+        {
+            dfu.IsPresent = false;
+            normal.IsPresent = true;
+        };
+        return dfu;
     }
 
     protected override void OnExit(ExitEventArgs e)

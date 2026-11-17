@@ -1,0 +1,60 @@
+<UserControl x:Class="ODriveStudio.App.Views.FirmwareView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DockPanel Margin="6">
+        <StackPanel DockPanel.Dock="Top">
+            <!-- État et entrée / sortie du mode DFU -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Mode DFU (bootloader du microcontrôleur)" Style="{StaticResource CardTitle}" />
+                    <TextBlock Text="{Binding DfuSummary}" TextWrapping="Wrap" Margin="0,8,0,10" />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Passer la carte en mode DFU…" Command="{Binding EnterDfuCommand}" />
+                        <Button Content="Redémarrer sur le firmware" Command="{Binding LeaveDfuCommand}" Margin="0" />
+                    </StackPanel>
+                    <TextBlock TextWrapping="Wrap" Margin="0,10,0,0" Foreground="{StaticResource MutedText}"
+                               Text="Si la carte ne répond plus du tout : mettre son interrupteur sur DFU, couper puis remettre l'alimentation. Le bootloader est en mémoire morte, il ne peut pas être effacé." />
+                </StackPanel>
+            </Border>
+
+            <!-- Sauvegarde -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="1. Sauvegarder la flash" Style="{StaticResource CardTitle}" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,8,0,10" Foreground="{StaticResource MutedText}"
+                               Text="Copie complète (1 Mio) : firmware actuel et configuration. Le fichier .bin obtenu se réécrit tel quel à l'étape 2 pour revenir exactement à l'état d'aujourd'hui." />
+                    <StackPanel Orientation="Horizontal">
+                        <Button Content="Sauvegarder dans un fichier…" Command="{Binding BackupCommand}" />
+                        <TextBlock VerticalAlignment="Center" Text="{Binding LastBackupPath, StringFormat='Dernière sauvegarde : {0}', TargetNullValue='Aucune sauvegarde faite pendant cette session.'}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Écriture -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="2. Écrire un firmware ou restaurer une sauvegarde" Style="{StaticResource CardTitle}" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,8,0,10" Foreground="{StaticResource MutedText}"
+                               Text="Fichier .elf publié par ODrive Robotics (github.com/odriverobotics/ODrive/releases, version fw-v0.5.6 : ODriveFirmware_v3.6-56V.elf ou ODriveFirmware_v3.6-24V.elf), fichier .hex, ou sauvegarde .bin. Toute la flash est effacée, configuration comprise, puis l'écriture est relue et vérifiée." />
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <Button Content="Choisir un fichier…" Command="{Binding ChooseFileCommand}" />
+                        <TextBlock VerticalAlignment="Center" Text="{Binding ImageSummary}" TextWrapping="Wrap" MaxWidth="820" />
+                    </StackPanel>
+                    <Button Content="Effacer la carte et écrire ce fichier…" Command="{Binding FlashCommand}"
+                            Foreground="{StaticResource Danger}" FontWeight="Bold" HorizontalAlignment="Left" Margin="0" />
+                </StackPanel>
+            </Border>
+
+            <!-- Avancement -->
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="{Binding ProgressText}" FontFamily="Consolas" Margin="0,0,0,6" />
+                    <ProgressBar Minimum="0" Maximum="1" Value="{Binding ProgressValue, Mode=OneWay}" Height="14" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+
+        <ListBox ItemsSource="{Binding Log}" FontFamily="Consolas" FontSize="13" Margin="6,0,6,6"
+                 BorderBrush="{StaticResource CardBorder}" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+    </DockPanel>
+</UserControl>

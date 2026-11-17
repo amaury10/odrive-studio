@@ -48,6 +48,16 @@ public sealed class SimulatedDfuDevice : IDfuTransport
     /// <summary>Levé quand le bootloader démarre l'application.</summary>
     public event EventHandler? Left;
 
+    /// <summary>Remet le bootloader sur le bus, comme après un nouveau passage en mode DFU.</summary>
+    public void Reenter()
+    {
+        HasLeft = false;
+        _state = StateIdle;
+        _status = StatusOk;
+        _pending = null;
+        _alternate = 0;
+    }
+
     public string SerialNumber { get; init; } = DefaultSerialNumber;
 
     public IReadOnlyList<string> AlternateNames => Names;

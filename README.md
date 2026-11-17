@@ -25,6 +25,11 @@ configuration, courbes temps réel, réglage des boucles, autotune, anticogging,
 dotnet run --project tools/ODrive.Cli -- list           # cartes branchées, diagnostic du pilote
 dotnet run --project tools/ODrive.Cli -- check          # lecture, écriture, clear_errors, reboot, reconnexion
 dotnet run --project tools/ODrive.Cli -- dump           # JSON d'endpoints + toutes les valeurs → fichier
+dotnet run --project tools/ODrive.Cli -- enter-dfu      # redémarre la carte dans son bootloader
+dotnet run --project tools/ODrive.Cli -- backup         # sauvegarde toute la flash (firmware + configuration)
+dotnet run --project tools/ODrive.Cli -- image f.elf    # décrit un fichier firmware avant de l'écrire
+dotnet run --project tools/ODrive.Cli -- flash f.elf --yes   # efface, écrit, vérifie, redémarre
+dotnet run --project tools/ODrive.Cli -- leave-dfu      # quitte le bootloader sans rien écrire
 ```
 Ajouter `--sim` pour travailler sur la carte simulée, sans matériel. Fermer `odrivetool` avant : une seule
 application à la fois peut ouvrir l'interface native.

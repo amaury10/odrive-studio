@@ -1,6 +1,7 @@
 <Window x:Class="ODriveStudio.App.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:views="clr-namespace:ODriveStudio.App.Views"
         Title="ODrive Studio" Width="1280" Height="820" MinWidth="900" MinHeight="600"
         WindowStartupLocation="CenterScreen" Background="{StaticResource WindowBackground}"
         PreviewKeyDown="OnPreviewKeyDown">
@@ -74,6 +75,9 @@
                                 Visibility="{Binding CanRepairUsb, Converter={StaticResource BoolToVisibility}}" />
                     </StackPanel>
                 </Grid>
+            </TabItem>
+            <TabItem Header="Firmware" Padding="14,6">
+                <views:FirmwareView DataContext="{Binding Firmware}" />
             </TabItem>
             <TabItem Header="Journal" Padding="14,6">
                 <DockPanel Margin="6">

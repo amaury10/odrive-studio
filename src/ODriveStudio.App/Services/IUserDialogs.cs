@@ -10,6 +10,9 @@ public interface IUserDialogs
 
     /// <summary>Chemin choisi pour un enregistrement, ou <c>null</c> si l'utilisateur annule.</summary>
     string? PickSaveFile(string title, string defaultFileName, string filter);
+
+    /// <summary>Chemin du fichier à ouvrir, ou <c>null</c> si l'utilisateur annule.</summary>
+    string? PickOpenFile(string title, string filter);
 }
 
 public sealed class WpfUserDialogs : IUserDialogs
@@ -21,6 +24,12 @@ public sealed class WpfUserDialogs : IUserDialogs
     public string? PickSaveFile(string title, string defaultFileName, string filter)
     {
         var dialog = new SaveFileDialog { Title = title, FileName = defaultFileName, Filter = filter };
+        return dialog.ShowDialog(Application.Current?.MainWindow) == true ? dialog.FileName : null;
+    }
+
+    public string? PickOpenFile(string title, string filter)
+    {
+        var dialog = new OpenFileDialog { Title = title, Filter = filter, CheckFileExists = true };
         return dialog.ShowDialog(Application.Current?.MainWindow) == true ? dialog.FileName : null;
     }
 }

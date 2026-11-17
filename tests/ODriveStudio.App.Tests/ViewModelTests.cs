@@ -34,7 +34,11 @@ internal sealed class FakeDialogs : IUserDialogs
         return Answer;
     }
 
+    public string? OpenPath { get; set; }
+
     public string? PickSaveFile(string title, string defaultFileName, string filter) => SavePath;
+
+    public string? PickOpenFile(string title, string filter) => OpenPath;
 }
 
 /// <summary>Une carte simulée connectée, avec les services dont les vues-modèles ont besoin.</summary>

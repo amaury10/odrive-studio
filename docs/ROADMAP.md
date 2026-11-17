@@ -83,4 +83,23 @@ réponse à l'échelon sans oscillation, roue soulevée.
 **Acceptation (matériel) :** la mini-voiture roue soulevée répond à accélérer / freiner / marche arrière
 depuis l'onglet CAN ; coupure de l'envoi → arrêt par watchdog.
 
-## Phase 9 (optionnelle) — Mise à jour firmware DFU
+## Phase 9 — Mise à jour firmware DFU (avancée à la demande ; écriture pas encore faite sur une carte)
+- [x] Protocole DfuSe du bootloader ROM STM32 (`ODrive.Protocol/Dfu`), d'après `tools/odrive/dfuse/DfuDevice.py`
+      et `tools/odrive/dfu.py` : effacement, écriture, relecture, démarrage de l'application, version
+      matérielle en OTP.
+- [x] Images : ELF 32 bits ARM (seul format publié pour fw-v0.5.6), Intel HEX, binaire brut ; contrôle de la
+      table de vecteurs avant tout effacement.
+- [x] Sauvegarde complète de la flash (1 Mio, firmware + configuration) dans un `.bin`, restaurable tel quel.
+- [x] `WinUsbDfuTransport` (VID 0483, PID DF11, transferts de contrôle) + `SimulatedDfuDevice`.
+- [x] Console : `enter-dfu`, `dfu`, `backup`, `flash --yes`, `leave-dfu`, `image`.
+- [x] Onglet « Firmware » : passage en DFU (axes en IDLE exigés), sauvegarde, choix du fichier, écriture
+      avec confirmation forte, retour au firmware. Avec `--sim`, la carte simulée a aussi un bootloader.
+- [ ] Téléchargement du firmware officiel depuis l'application (aujourd'hui : fichier choisi à la main).
+- [ ] Restauration de la configuration après mise à jour (les noms de propriétés changent entre versions).
+- [ ] Levée de la protection en lecture (RDP) : volontairement absente, elle efface toute la flash.
+
+**Vérifié sur une v3.6 non officielle (firmware 0.5.1) :** `enter-dfu`, `dfu` (OTP vierge), `backup` (deux
+lectures identiques), `leave-dfu`, retour en mode normal. **Pas encore vérifié sur une carte :** l'écriture
+(`flash`), validée seulement sur le bootloader simulé.
+**Acceptation (matériel) :** sauvegarde, écriture du firmware officiel 0.5.6, `odrive-cli check` OK
+(`json_version_id` = 0xC1A0AD28), puis restauration de la sauvegarde et retour à l'état initial.

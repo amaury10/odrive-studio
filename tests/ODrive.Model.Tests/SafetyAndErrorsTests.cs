@@ -110,30 +110,38 @@ public class EmergencyStopTests
     public async Task Stop_passes_before_requests_already_waiting()
     {
         SimulatedODrive board = SimulatedODrive.CreateReference();
-        // Le transport simulé répond de façon synchrone ; ce relais rend la main à chaque réception, comme
-        // un vrai transport, pour que les requêtes s'accumulent dans la file.
-        ODriveDevice device = await ODriveDevice.ConnectAsync(new YieldingTransport(new SimulatedTransport(board)));
+        // Le transport simulé répond de façon synchrone et en quelques microsecondes : ce relais retient
+        // les réponses le temps que la file se remplisse, comme une liaison occupée par une vraie rafale.
+        var transport = new HeldTransport(new SimulatedTransport(board));
+        ODriveDevice device = await ODriveDevice.ConnectAsync(transport);
         await new ODrive3(device).Axis0.RequestedState.SetAsync(AxisState.ClosedLoopControl);
         int readsBeforeStop = -1;
         int reads = 0;
-        board.OnWrite("axis1.requested_state", _ => readsBeforeStop = reads);
+        board.OnWrite("axis1.requested_state", _ => readsBeforeStop = Volatile.Read(ref reads));
         PropertyNode vbus = device.Schema.GetProperty("vbus_voltage");
 
-        // Une rafale de lectures (comme l'acquisition des courbes) est en file quand l'arrêt est demandé.
+        // Une rafale de lectures (comme l'acquisition des courbes) : la première attend sa réponse, les 499
+        // autres sont en file quand l'arrêt est demandé.
+        transport.Hold();
         Task[] burst = Enumerable.Range(0, 500).Select(async _ =>
         {
             await device.ReadAsync(vbus);
             Interlocked.Increment(ref reads);
         }).ToArray();
-        await EmergencyStop.StopAsync([device]);
+        Task<IReadOnlyList<EmergencyStopFailure>> stop = EmergencyStop.StopAsync([device]);
+        transport.Release();
+        await stop;
         await Task.WhenAll(burst);
 
-        readsBeforeStop.Should().BeLessThan(250, "l'arrêt ne doit pas attendre la fin de la rafale");
+        // Seule la lecture déjà sur le fil peut passer avant l'arrêt des deux axes.
+        readsBeforeStop.Should().BeInRange(0, 1, "l'arrêt des deux axes doit passer devant toutes les lectures en file");
         board.Get("axis0.current_state").Should().Be((byte)AxisState.Idle);
     }
 
-    private sealed class YieldingTransport(ITransport inner) : ITransport
+    private sealed class HeldTransport(ITransport inner) : ITransport
     {
+        private TaskCompletionSource _gate = Open();
+
         public string Description => inner.Description;
         public bool IsConnected => inner.IsConnected;
 
@@ -143,12 +151,25 @@ public class EmergencyStopTests
             remove => inner.Disconnected -= value;
         }
 
+        /// <summary>Retient les réponses jusqu'à <see cref="Release"/>.</summary>
+        public void Hold() => _gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Release() => _gate.TrySetResult();
+
         public ValueTask SendAsync(ReadOnlyMemory<byte> packet, CancellationToken ct) => inner.SendAsync(packet, ct);
 
         public async ValueTask<int> ReceiveAsync(Memory<byte> buffer, TimeSpan timeout, CancellationToken ct)
         {
+            await _gate.Task;
             await Task.Yield();
             return await inner.ReceiveAsync(buffer, timeout, ct);
+        }
+
+        private static TaskCompletionSource Open()
+        {
+            var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            gate.SetResult();
+            return gate;
         }
 
         public ValueTask DisposeAsync() => inner.DisposeAsync();

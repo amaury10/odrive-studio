@@ -26,26 +26,31 @@ public static class EmergencyStop
 
     private static async Task<EmergencyStopFailure[]> StopDeviceAsync(ODriveDevice device, CancellationToken ct)
     {
-        var failures = new List<EmergencyStopFailure>();
         // Tous les axes présents dans l'arbre de la carte (axis0, axis1 sur v3.x).
         IEnumerable<PropertyNode> targets = device.Schema.Root.Members.OfType<ObjectNode>()
             .Select(axis => device.Schema.FindProperty(axis.Path + ".requested_state"))
             .OfType<PropertyNode>();
 
-        foreach (PropertyNode requestedState in targets)
+        // Toutes les demandes entrent dans la file d'urgence avant la première attente : aucune requête
+        // ordinaire ne peut se glisser entre l'arrêt d'un axe et celui du suivant.
+        Task<EmergencyStopFailure?>[] writes = [.. targets.Select(target => StopAxisAsync(device, target, ct))];
+        EmergencyStopFailure?[] results = await Task.WhenAll(writes).ConfigureAwait(false);
+        return [.. results.OfType<EmergencyStopFailure>()];
+    }
+
+    private static async Task<EmergencyStopFailure?> StopAxisAsync(ODriveDevice device, PropertyNode requestedState,
+        CancellationToken ct)
+    {
+        try
         {
-            try
-            {
-                await device.WriteAsync(requestedState, AxisState.Idle, RequestPriority.Emergency, ct)
-                    .ConfigureAwait(false);
-            }
-#pragma warning disable CA1031 // Un arrêt d'urgence ne doit jamais s'interrompre sur une exception.
-            catch (Exception e)
-#pragma warning restore CA1031
-            {
-                failures.Add(new EmergencyStopFailure(device, requestedState.Path, e));
-            }
+            await device.WriteAsync(requestedState, AxisState.Idle, RequestPriority.Emergency, ct).ConfigureAwait(false);
+            return null;
         }
-        return [.. failures];
+#pragma warning disable CA1031 // Un arrêt d'urgence ne doit jamais s'interrompre sur une exception.
+        catch (Exception e)
+#pragma warning restore CA1031
+        {
+            return new EmergencyStopFailure(device, requestedState.Path, e);
+        }
     }
 }

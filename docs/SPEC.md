@@ -79,5 +79,15 @@ Voir `docs/CAN_SIMPLE.md`.
 - Journal horodaté de toutes les écritures faites par l'outil (exportable).
 - Rapport de diagnostic en un clic (config + erreurs + versions) au format texte.
 
-## 12. Hors périmètre (phase optionnelle)
-- Mise à jour firmware (DFU STM32) : phase 9, optionnelle, derrière un avertissement fort.
+## 12. Mise à jour firmware (DFU STM32)
+Onglet « Firmware », par le bootloader ROM du microcontrôleur (ineffaçable : une écriture ratée se recommence).
+- Passage en mode DFU par `enter_dfu_mode()` (refusé si un axe n'est pas en IDLE), ou interrupteur DFU de la
+  carte. Le firmware n'entre pas en DFU sur une carte antérieure à la v3.5 (`main.cpp:197-213`).
+- **Sauvegarde** de toute la flash dans un `.bin` avant d'écrire ; impossible si la flash est protégée en
+  lecture (l'outil le dit et ne lève pas la protection).
+- **Écriture** d'un `.elf` / `.hex` officiel ou d'une sauvegarde `.bin` : effacement complet (configuration
+  comprise), écriture, relecture de vérification, redémarrage. Confirmation qui rappelle la sauvegarde.
+- **Cartes non officielles** : leur OTP est vierge, l'outil d'origine refuse alors de flasher
+  (`dfu.py:395-403`). Ici l'utilisateur choisit le fichier ; l'outil avertit qu'il ne peut pas vérifier la
+  variante 24 V / 56 V et demande de comparer `vbus_voltage` à un multimètre après l'écriture. Sur une carte
+  officielle, un fichier prévu pour une autre version matérielle que celle de l'OTP est refusé.

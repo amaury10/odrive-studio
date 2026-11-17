@@ -20,3 +20,13 @@
   à la fin. Le compteur est rechargé à l'entrée en `CLOSED_LOOP_CONTROL` (`axis.cpp:577`).
 - **Écritures traçées** : chaque écriture est journalisée (horodatage, chemin, ancienne → nouvelle valeur).
 - **Save / Erase / Reboot** : confirmation, et jamais pendant que l'axe est en boucle fermée.
+
+## Mise à jour firmware
+- Le passage en mode DFU est refusé tant qu'un axe n'est pas en IDLE ; en mode DFU les moteurs ne sont plus
+  pilotés.
+- Rien n'est effacé avant que le fichier ait été reconnu comme un firmware (table de vecteurs) et qu'il
+  tienne dans la flash.
+- L'écriture commencée va au bout (pas d'annulation à mi-chemin) ; en cas d'échec la carte reste dans son
+  bootloader, qui est en mémoire morte.
+- Après un changement de firmware sur une carte non officielle : contrôler `vbus_voltage` au multimètre avant
+  d'armer un moteur.
