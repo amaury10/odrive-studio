@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using Microsoft.Win32;
 
 namespace ODrive.Protocol.Transport.WinUsb;
 
@@ -7,7 +8,7 @@ namespace ODrive.Protocol.Transport.WinUsb;
 /// <param name="DevicePath">Chemin d'interface à passer à <see cref="WinUsbTransport.Open"/>.</param>
 public sealed record WinUsbDeviceInfo(string DevicePath);
 
-/// <summary>Énumération des cartes ODrive par leur <c>DeviceInterfaceGUID</c> (SetupAPI).</summary>
+/// <summary>Énumération des cartes ODrive par leurs GUID d'interface (SetupAPI + registre).</summary>
 public static class WinUsbEnumerator
 {
     /// <summary><c>ref/ODrive/Firmware/Board/v3/Src/usbd_desc.c:94</c></summary>
@@ -22,15 +23,48 @@ public static class WinUsbEnumerator
     /// <summary>
     /// GUID d'interface annoncé par les descripteurs MS OS du firmware
     /// (<c>ref/ODrive/Firmware/ThirdParty/STM32_USB_Device_Library/Class/CDC/Src/usbd_cdc.c:865-895</c>).
-    /// Windows installe WinUSB tout seul et publie l'interface sous ce GUID.
+    /// ⚠ En pratique Windows ne le reçoit pas pour l'interface 2 (voir <see cref="UsbDriverDiagnosis"/>) :
+    /// il n'est publié que s'il a été enregistré par <see cref="RegisterInterfaceGuid"/>.
     /// </summary>
     public static readonly Guid DeviceInterfaceGuid = new("EA0BD5C3-50F3-4888-84B4-74E50E1649DB");
 
-    /// <summary>Cartes présentes dont l'interface native est pilotée par WinUSB.</summary>
+    /// <summary>
+    /// Cartes présentes dont l'interface native peut être ouverte par WinUSB. La recherche porte sur le GUID
+    /// du firmware et sur tous les GUID enregistrés pour les interfaces natives présentes : un pilote WinUSB
+    /// installé par Zadig publie l'interface sous un GUID qui lui est propre.
+    /// </summary>
     public static IReadOnlyList<WinUsbDeviceInfo> Enumerate()
     {
+        var guids = new List<Guid> { DeviceInterfaceGuid };
+        foreach (NativeInterfaceStatus status in FindNativeInterfaces())
+        {
+            foreach (Guid guid in status.InterfaceGuids)
+            {
+                if (!guids.Contains(guid))
+                {
+                    guids.Add(guid);
+                }
+            }
+        }
+
         var devices = new List<WinUsbDeviceInfo>();
-        Guid guid = DeviceInterfaceGuid;
+        foreach (Guid guid in guids)
+        {
+            foreach (string path in EnumerateInterfacePaths(guid))
+            {
+                if (UsbDriverDiagnosis.IsNativeInterfacePath(path)
+                    && !devices.Exists(d => string.Equals(d.DevicePath, path, StringComparison.OrdinalIgnoreCase)))
+                {
+                    devices.Add(new WinUsbDeviceInfo(path));
+                }
+            }
+        }
+        return devices;
+    }
+
+    private static List<string> EnumerateInterfacePaths(Guid guid)
+    {
+        var paths = new List<string>();
         IntPtr set = NativeMethods.SetupDiGetClassDevs(guid, null, IntPtr.Zero,
             NativeMethods.DigcfPresent | NativeMethods.DigcfDeviceInterface);
         if (set == NativeMethods.InvalidHandleValue)
@@ -58,7 +92,7 @@ public static class WinUsbEnumerator
 
                 if (GetDevicePath(set, ref data) is { } path)
                 {
-                    devices.Add(new WinUsbDeviceInfo(path));
+                    paths.Add(path);
                 }
             }
         }
@@ -66,15 +100,60 @@ public static class WinUsbEnumerator
         {
             NativeMethods.SetupDiDestroyDeviceInfoList(set);
         }
-        return devices;
+        return paths;
     }
 
     /// <summary>
-    /// Identifiants d'instance des interfaces natives ODrive présentes sur le bus USB, quel que soit leur
-    /// pilote. S'il y en a plus que de cartes renvoyées par <see cref="Enumerate"/>, un autre pilote que
-    /// WinUSB a été forcé sur l'interface native (SPEC §1 : expliquer la procédure Zadig).
+    /// Interfaces natives ODrive présentes sur le bus USB, quel que soit leur pilote, avec ce que Windows en
+    /// sait (pilote, GUID d'interface). Sert à <see cref="UsbDriverDiagnosis.Explain"/>.
     /// </summary>
-    public static IReadOnlyList<string> FindNativeInterfaceInstances()
+    public static IReadOnlyList<NativeInterfaceStatus> FindNativeInterfaces()
+    {
+        var statuses = new List<NativeInterfaceStatus>();
+        foreach (string instanceId in FindNativeInterfaceInstances())
+        {
+            using RegistryKey? device = Registry.LocalMachine.OpenSubKey(EnumKeyPath(instanceId));
+            using RegistryKey? parameters = device?.OpenSubKey("Device Parameters");
+            var guids = new List<Guid>(UsbDriverDiagnosis.ParseGuids(parameters?.GetValue("DeviceInterfaceGUIDs")));
+            foreach (Guid guid in UsbDriverDiagnosis.ParseGuids(parameters?.GetValue("DeviceInterfaceGUID")))
+            {
+                if (!guids.Contains(guid))
+                {
+                    guids.Add(guid);
+                }
+            }
+            statuses.Add(new NativeInterfaceStatus(instanceId, device?.GetValue("Service") as string, guids));
+        }
+        return statuses;
+    }
+
+    /// <summary>
+    /// Enregistre <see cref="DeviceInterfaceGuid"/> pour une interface native pilotée par WinUSB mais sans
+    /// GUID (défaut du firmware, voir <see cref="UsbDriverDiagnosis"/>). Demande les droits administrateur.
+    /// WinUSB ne publie le GUID qu'au démarrage suivant du périphérique (rebranchement ou
+    /// <c>pnputil /restart-device</c>).
+    /// </summary>
+    /// <exception cref="UnauthorizedAccessException">Le processus n'est pas administrateur.</exception>
+    public static void RegisterInterfaceGuid(string instanceId)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(instanceId);
+        try
+        {
+            using RegistryKey parameters = Registry.LocalMachine.OpenSubKey(
+                EnumKeyPath(instanceId) + @"\Device Parameters", writable: true)
+                ?? throw new IOException($"Clé de registre introuvable pour {instanceId}.");
+            parameters.SetValue("DeviceInterfaceGUIDs",
+                new[] { DeviceInterfaceGuid.ToString("B").ToUpperInvariant() }, RegistryValueKind.MultiString);
+        }
+        catch (System.Security.SecurityException e)
+        {
+            throw new UnauthorizedAccessException("Droits administrateur requis.", e);
+        }
+    }
+
+    private static string EnumKeyPath(string instanceId) => @"SYSTEM\CurrentControlSet\Enum\" + instanceId;
+
+    private static List<string> FindNativeInterfaceInstances()
     {
         string prefix = $@"USB\VID_{VendorId:X4}&PID_{ProductId:X4}&MI_{NativeInterfaceNumber:X2}\";
         var instances = new List<string>();

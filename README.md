@@ -11,8 +11,10 @@ configuration, courbes temps réel, réglage des boucles, autotune, anticogging,
 
 ## Prérequis
 - Windows 10/11 x64, SDK .NET 10.
-- ODrive v3.6 en firmware 0.5.6 ; le pilote WinUSB de l'interface native s'installe tout seul (Zadig
-  seulement si un autre pilote a été forcé).
+- ODrive v3.6 en firmware 0.5.6. Windows charge WinUSB tout seul sur l'interface native, mais sans GUID
+  d'interface (défaut du firmware) : à la première connexion d'une carte sur un port USB, lancer une fois
+  `dotnet run --project tools/ODrive.Cli -- fix-usb` dans un terminal administrateur
+  (voir `docs/PROTOCOL_NATIVE.md` §Transport USB).
 - Pour régénérer le code ou les données de référence : `ref/ODrive` (voir `CLAUDE.md`), puis
   `dotnet run --project tools/ODrive.CodeGen` et `python tools/gen_reference_json.py`
   (`pip install pyyaml jinja2 jsonschema`).

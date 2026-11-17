@@ -60,19 +60,14 @@ public partial class App : Application
         base.OnExit(e);
     }
 
-    // SPEC §1 : carte visible par son VID/PID mais pas par son GUID d'interface → un autre pilote que WinUSB
-    // a été forcé sur l'interface native.
+    // SPEC §1 : carte visible sur le bus mais impossible à ouvrir → expliquer pourquoi (GUID d'interface
+    // absent, ou autre pilote que WinUSB).
     private static string? DriverHint()
     {
         try
         {
-            int present = WinUsbEnumerator.FindNativeInterfaceInstances().Count;
-            int usable = WinUsbEnumerator.Enumerate().Count;
-            return present > usable
-                ? "Une carte ODrive est branchée, mais son interface native n'est pas pilotée par WinUSB : un autre "
-                  + "pilote a été forcé (libusb-win32, libusbK…).\nAvec Zadig : Options > List All Devices, choisir "
-                  + "« ODrive 3.6 Native Interface (Interface 2) », sélectionner WinUSB puis Replace Driver."
-                : null;
+            return UsbDriverDiagnosis.Explain(WinUsbEnumerator.FindNativeInterfaces(),
+                WinUsbEnumerator.Enumerate().Count);
         }
         catch (Win32Exception)
         {

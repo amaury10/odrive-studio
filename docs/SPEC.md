@@ -3,7 +3,7 @@
 Cible : ODrive v3.6 (56 V ou 24 V), firmware 0.5.6, Windows 10/11 x64.
 
 ## 1. Connexion et gestion des cartes
-- Détection automatique USB : VID `0x1209`, PID `0x0D32`, interface native n° 2 (bulk `0x03` OUT / `0x83` IN), énumérée par son `DeviceInterfaceGUID` `{EA0BD5C3-50F3-4888-84B4-74E50E1649DB}` — voir `docs/PROTOCOL_NATIVE.md` §Transport USB.
+- Détection automatique USB : VID `0x1209`, PID `0x0D32`, interface native n° 2 (bulk `0x03` OUT / `0x83` IN), énumérée par les GUID d'interface enregistrés dans Windows pour `MI_02` (`{EA0BD5C3-50F3-4888-84B4-74E50E1649DB}` après `odrive-cli fix-usb`) — voir `docs/PROTOCOL_NATIVE.md` §Transport USB.
 - Plusieurs ODrive en parallèle, identifiés par numéro de série (affiché en hexa comme `odrivetool`).
 - Cartes non officielles (clones) : la carte expose `otp_valid`, faux quand la zone OTP du STM32 n'a pas été
   programmée par ODrive Robotics (`ref/ODrive/Firmware/MotorControl/odrive_main.h:246`). `odrivetool` les
@@ -14,7 +14,7 @@ Cible : ODrive v3.6 (56 V ou 24 V), firmware 0.5.6, Windows 10/11 x64.
 - Lecture et mise en cache de l'arbre JSON (endpoint 0) ; cache indexé par `json_version_id` (u32 lu en une requête, offset `0xFFFFFFFF`).
 - Infos carte : version hardware, version firmware, numéro de série, `vbus_voltage`, `ibus`.
 - Reconnexion automatique après un reboot ou un `save_configuration`.
-- Indicateur de pilote : le firmware fait installer WinUSB automatiquement (descripteurs MS OS). Si la carte est visible par son VID/PID mais pas par son GUID d'interface, un autre pilote a été forcé sur l'interface native : expliquer la procédure Zadig.
+- Indicateur de pilote : si la carte est visible par son VID/PID mais ne peut pas être ouverte, dire pourquoi (`UsbDriverDiagnosis`) : GUID d'interface absent — cas normal en 0.5.6, corrigé par `odrive-cli fix-usb` —, autre pilote que WinUSB (procédure Zadig), ou GUID pas encore publié (rebrancher).
 
 ## 2. Tableau de bord
 - Par axe : état courant / demandé, mode de contrôle, mode d'entrée, consigne, vitesse et position estimées, Iq mesuré / consigne, température FET (et moteur si thermistance configurée).

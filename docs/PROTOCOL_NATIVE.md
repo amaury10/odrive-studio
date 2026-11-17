@@ -15,12 +15,19 @@
 
   (numéros d'interface : `usbd_cdc.c:195,243,286` ; endpoints : `.../CDC/Inc/usbd_cdc.h:44-48`.)
 - Nom de l'interface native : « ODrive 3.6 Native Interface » (`usbd_desc.c:101`).
-- **Pilote Windows : WinUSB s'installe tout seul.** Le firmware fournit les descripteurs MS OS 1.0 : chaîne
-  `MSFT100` à l'index 0xEE (`usbd_desc.c:122`), compat ID `WINUSB` sur l'interface 2 (`usbd_cdc.c:823-845`)
-  et la propriété `DeviceInterfaceGUID = {EA0BD5C3-50F3-4888-84B4-74E50E1649DB}` (`usbd_cdc.c:865-895`).
-  → L'énumération se fait avec SetupAPI sur ce GUID d'interface. Zadig n'est nécessaire que si un autre
-  pilote (libusb-win32, libusbK…) a été forcé auparavant sur l'interface 2 : dans ce cas le GUID
-  n'apparaît pas alors que le VID/PID est présent, et l'application explique la marche à suivre.
+- **Pilote Windows : WinUSB se charge tout seul, mais sans GUID d'interface.** Le firmware fournit les
+  descripteurs MS OS 1.0 : chaîne `MSFT100` à l'index 0xEE (`usbd_desc.c:122`) et compat ID `WINUSB` sur
+  l'interface 2 (`usbd_cdc.c:823-845`) : Windows associe donc `winusb.inf` à l'interface native. La propriété
+  `DeviceInterfaceGUID = {EA0BD5C3-50F3-4888-84B4-74E50E1649DB}` existe aussi (`usbd_cdc.c:865-895`), mais
+  la requête « extended properties » n'est acceptée que pour l'interface 0 et **refusée pour l'interface 2**
+  (`usbd_cdc.c:940-951`). Vérifié sur une v3.6 : `Service = WINUSB`, aucune valeur `DeviceInterfaceGUIDs`
+  sous `Enum\USB\VID_1209&PID_0D32&MI_02\…\Device Parameters`, donc aucun chemin d'interface à ouvrir.
+  → Deux remèdes : `odrive-cli fix-usb` (terminal administrateur) écrit ce GUID dans le registre et
+  redémarre le périphérique, une fois par carte et par port USB ; ou Zadig, qui réinstalle WinUSB avec un
+  GUID à lui. L'énumération (`WinUsbEnumerator`) cherche donc sous le GUID du firmware **et** sous tous les
+  GUID enregistrés pour les interfaces `MI_02` présentes, et ne garde que les chemins `vid_1209&pid_0d32&mi_02`.
+  `UsbDriverDiagnosis` distingue trois cas : GUID absent, autre pilote que WinUSB, GUID écrit mais pas
+  encore publié (rebrancher).
   Windows ne lit ces descripteurs qu'une fois par périphérique (cache dans
   `HKLM\SYSTEM\CurrentControlSet\Control\usbflags\12090D32xxxx`).
 - Sur USB bulk, **pas de tramage** : un transfert = un paquet.

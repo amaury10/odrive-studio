@@ -9,6 +9,7 @@ using ODrive.Protocol.Transport.WinUsb;
 
 // Outil console de la phase 1 : énumération, dump et contrôle d'acceptation du protocole natif.
 //   odrive-cli list
+//   odrive-cli fix-usb
 //   odrive-cli dump  [--sim] [--out fichier.json]
 //   odrive-cli check [--sim]
 
@@ -36,6 +37,7 @@ try
     return command switch
     {
         "list" => List(),
+        "fix-usb" => FixUsb(),
         "dump" => await DumpAsync(),
         "check" => await CheckAsync(),
         _ => Help(),
@@ -52,6 +54,7 @@ int Help()
     Console.WriteLine(
         """
         odrive-cli list                      liste les cartes ODrive branchées en USB
+        odrive-cli fix-usb                   enregistre le GUID d'interface WinUSB manquant (terminal administrateur)
         odrive-cli dump  [--sim] [--out f]   écrit le JSON d'endpoints et toutes les valeurs de la carte
         odrive-cli check [--sim]             contrôle d'acceptation de la phase 1 (lecture, écriture, fonction, reboot)
 
@@ -63,7 +66,7 @@ int Help()
 int List()
 {
     IReadOnlyList<WinUsbDeviceInfo> devices = WinUsbEnumerator.Enumerate();
-    IReadOnlyList<string> instances = WinUsbEnumerator.FindNativeInterfaceInstances();
+    IReadOnlyList<NativeInterfaceStatus> present = WinUsbEnumerator.FindNativeInterfaces();
 
     Console.WriteLine($"{devices.Count} carte(s) ODrive accessible(s) par WinUSB :");
     foreach (WinUsbDeviceInfo device in devices)
@@ -71,19 +74,69 @@ int List()
         Console.WriteLine("  " + device.DevicePath);
     }
 
-    if (instances.Count > devices.Count)
+    if (UsbDriverDiagnosis.Explain(present, devices.Count) is { } hint)
     {
         Console.WriteLine();
-        Console.WriteLine($"{instances.Count} interface(s) native(s) ODrive vue(s) sur le bus USB (VID 1209, PID 0D32, MI_02) :");
-        foreach (string instance in instances)
+        Console.WriteLine($"{present.Count} interface(s) native(s) ODrive vue(s) sur le bus USB (VID 1209, PID 0D32, MI_02) :");
+        foreach (NativeInterfaceStatus status in present)
         {
-            Console.WriteLine("  " + instance);
+            string guids = status.InterfaceGuids.Count == 0 ? "aucun" : string.Join(", ", status.InterfaceGuids);
+            Console.WriteLine($"  {status.InstanceId}  pilote = {status.Service ?? "aucun"}, GUID d'interface = {guids}");
         }
-        Console.WriteLine("Au moins une n'est pas pilotée par WinUSB : un autre pilote a été forcé sur l'interface");
-        Console.WriteLine("native (libusb-win32, libusbK…). Avec Zadig : Options > List All Devices, choisir");
-        Console.WriteLine("« ODrive 3.6 Native Interface (Interface 2) », pilote WinUSB, Replace Driver.");
+        Console.WriteLine(hint);
     }
     return devices.Count > 0 ? 0 : 1;
+}
+
+// Enregistre le GUID d'interface que le firmware 0.5.6 ne transmet pas à Windows (voir UsbDriverDiagnosis),
+// puis redémarre le périphérique pour que WinUSB le publie.
+int FixUsb()
+{
+    var targets = WinUsbEnumerator.FindNativeInterfaces()
+        .Where(status => status.IsWinUsb && status.InterfaceGuids.Count == 0)
+        .ToList();
+    if (targets.Count == 0)
+    {
+        Console.WriteLine("Rien à corriger : aucune interface native pilotée par WinUSB sans GUID d'interface.");
+        return List();
+    }
+
+    foreach (NativeInterfaceStatus status in targets)
+    {
+        try
+        {
+            WinUsbEnumerator.RegisterInterfaceGuid(status.InstanceId);
+        }
+        catch (UnauthorizedAccessException)
+        {
+            Console.Error.WriteLine("Droits administrateur requis : relancer cette commande dans un terminal "
+                + "ouvert « en tant qu'administrateur ».");
+            return 1;
+        }
+        Console.WriteLine($"GUID {WinUsbEnumerator.DeviceInterfaceGuid:B} enregistré pour {status.InstanceId}");
+
+        using Process? restart = Process.Start(new ProcessStartInfo("pnputil.exe")
+        {
+            ArgumentList = { "/restart-device", status.InstanceId },
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        });
+        restart?.WaitForExit(10_000);
+    }
+
+    // Laisse à Windows le temps de redémarrer le périphérique.
+    var watch = Stopwatch.StartNew();
+    while (WinUsbEnumerator.Enumerate().Count == 0 && watch.Elapsed < TimeSpan.FromSeconds(5))
+    {
+        Thread.Sleep(250);
+    }
+    if (WinUsbEnumerator.Enumerate().Count == 0)
+    {
+        Console.WriteLine("La carte n'est pas encore visible : débrancher puis rebrancher son câble USB, puis "
+            + "« odrive-cli list ».");
+        return 1;
+    }
+    return List();
 }
 
 async Task<int> DumpAsync()
