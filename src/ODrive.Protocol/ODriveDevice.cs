@@ -239,6 +239,13 @@ public sealed class ODriveDevice : IAsyncDisposable
     /// <summary>Redémarre la carte. La liaison est perdue : il faut attendre la ré-énumération et se reconnecter.</summary>
     public Task RebootAsync(CancellationToken ct = default) => CallExpectingRebootAsync("reboot", ct);
 
+    /// <summary>
+    /// Redémarre la carte dans le bootloader ROM du STM32 (<c>Firmware/MotorControl/main.cpp:197-213</c>) :
+    /// elle quitte le bus et réapparaît en « STM32 BOOTLOADER ». Le firmware ne fait rien sur une carte
+    /// antérieure à la v3.5 (risque pour les transistors de la résistance de freinage).
+    /// </summary>
+    public Task EnterDfuModeAsync(CancellationToken ct = default) => CallExpectingRebootAsync("enter_dfu_mode", ct);
+
     /// <summary>Efface la configuration ; la carte redémarre (<c>Firmware/MotorControl/main.cpp:186-195</c>).</summary>
     public Task EraseConfigurationAsync(CancellationToken ct = default) =>
         CallExpectingRebootAsync("erase_configuration", ct);

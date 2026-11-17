@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using ODrive.Model;
 using ODrive.Protocol;
+using ODrive.Protocol.Dfu;
 using ODrive.Protocol.Simulation;
 using ODrive.Protocol.Transport;
 using ODrive.Protocol.Transport.WinUsb;
@@ -40,10 +41,16 @@ try
         "fix-usb" => FixUsb(),
         "dump" => await DumpAsync(),
         "check" => await CheckAsync(),
+        "enter-dfu" => await EnterDfuAsync(),
+        "dfu" => DfuInfo(),
+        "backup" => Backup(),
+        "flash" => Flash(),
+        "leave-dfu" => LeaveDfu(),
         _ => Help(),
     };
 }
-catch (Exception e) when (e is IOException or ODriveProtocolException or TimeoutException or KeyNotFoundException)
+catch (Exception e) when (e is IOException or ODriveProtocolException or TimeoutException or KeyNotFoundException
+    or InvalidDataException or UnauthorizedAccessException)
 {
     Console.Error.WriteLine("Erreur : " + e.Message);
     return 1;
@@ -57,6 +64,13 @@ int Help()
         odrive-cli fix-usb                   enregistre le GUID d'interface WinUSB manquant (terminal administrateur)
         odrive-cli dump  [--sim] [--out f]   écrit le JSON d'endpoints et toutes les valeurs de la carte
         odrive-cli check [--sim]             contrôle d'acceptation de la phase 1 (lecture, écriture, fonction, reboot)
+
+        Firmware (bootloader DFU du STM32) :
+        odrive-cli enter-dfu                 redémarre la carte dans son bootloader
+        odrive-cli dfu                       décrit la carte en mode DFU (régions mémoire, version en OTP)
+        odrive-cli backup [--out f.bin]      sauvegarde toute la flash (firmware + configuration)
+        odrive-cli flash <f.hex|f.bin> --yes efface la flash, écrit et vérifie ; --stay pour rester en DFU
+        odrive-cli leave-dfu                 quitte le bootloader et démarre le firmware
 
         --sim : utilise la carte simulée au lieu de l'USB.
         """);
@@ -127,6 +141,130 @@ int FixUsb()
         return 1;
     }
     return List();
+}
+
+async Task<int> EnterDfuAsync()
+{
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    PrintIdentity(device);
+    await device.EnterDfuModeAsync();
+    Console.WriteLine("enter_dfu_mode() envoyé. Attente du bootloader…");
+
+    var watch = Stopwatch.StartNew();
+    while (WinUsbEnumerator.FindDfuDevices().Count == 0 && watch.Elapsed < TimeSpan.FromSeconds(10))
+    {
+        await Task.Delay(250);
+    }
+    await Task.Delay(500); // laisse Windows finir d'installer le périphérique
+    return DfuInfo();
+}
+
+// Ouvre le bootloader, ou explique pourquoi c'est impossible.
+DfuSeDevice? OpenDfu()
+{
+    IReadOnlyList<WinUsbDeviceInfo> usable = WinUsbEnumerator.EnumerateDfu();
+    IReadOnlyList<NativeInterfaceStatus> present = WinUsbEnumerator.FindDfuDevices();
+    if (usable.Count == 0)
+    {
+        if (present.Count == 0)
+        {
+            Console.WriteLine("Aucune carte en mode DFU (STM32 BOOTLOADER, VID 0483, PID DF11) sur le bus USB.");
+            return null;
+        }
+        foreach (NativeInterfaceStatus status in present)
+        {
+            string guids = status.InterfaceGuids.Count == 0 ? "aucun" : string.Join(", ", status.InterfaceGuids);
+            Console.WriteLine($"  {status.InstanceId}  pilote = {status.Service ?? "aucun"}, GUID d'interface = {guids}");
+        }
+        Console.WriteLine(UsbDriverDiagnosis.ExplainDfu(present, 0));
+        return null;
+    }
+    return new DfuSeDevice(WinUsbDfuTransport.Open(usable[0]));
+}
+
+int DfuInfo()
+{
+    using DfuSeDevice? dfu = OpenDfu();
+    if (dfu is null)
+    {
+        return 1;
+    }
+
+    Console.WriteLine($"Bootloader STM32, numéro de série {dfu.SerialNumber}");
+    foreach (IGrouping<string, DfuSector> region in dfu.Sectors.GroupBy(sector => sector.Region))
+    {
+        Console.WriteLine($"  {region.Key} : 0x{region.First().Address:X8}, {region.Count()} secteur(s), "
+            + $"{region.Sum(sector => sector.Length)} octets");
+    }
+    (int Major, int Minor, int Variant)? hardware = FirmwareUpdater.ReadHardwareVersion(dfu);
+    Console.WriteLine(hardware is { } version
+        ? $"  version matérielle en OTP : v{version.Major}.{version.Minor}-{version.Variant}V"
+        : "  OTP vierge : carte non officielle, version matérielle inconnue du bootloader.");
+    return 0;
+}
+
+int Backup()
+{
+    using DfuSeDevice? dfu = OpenDfu();
+    if (dfu is null)
+    {
+        return 1;
+    }
+
+    var watch = Stopwatch.StartNew();
+    byte[] flash = FirmwareUpdater.ReadFlash(dfu, new DfuConsoleProgress());
+    Console.WriteLine();
+    outPath ??= $"odrive-{dfu.SerialNumber}-flash-{DateTime.Now:yyyyMMdd-HHmmss}.bin";
+    File.WriteAllBytes(outPath, flash);
+    Console.WriteLine($"Sauvegarde écrite : {Path.GetFullPath(outPath)} ({flash.Length} octets, {watch.ElapsedMilliseconds} ms)");
+    Console.WriteLine("  SHA-256 : " + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(flash)));
+    bool plausible = FirmwareImage.FromBinary(flash).LooksLikeFirmware(out string? reason);
+    Console.WriteLine(plausible
+        ? "  La sauvegarde commence par une table de vecteurs valide : elle est restaurable par « flash »."
+        : "  ATTENTION : la sauvegarde ne ressemble pas à un firmware (" + reason + ")");
+    return plausible ? 0 : 2;
+}
+
+int Flash()
+{
+    string? file = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal) && a != outPath);
+    if (file is null || !args.Contains("--yes"))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli flash <fichier.hex|fichier.bin> --yes [--stay]");
+        Console.Error.WriteLine("Efface TOUTE la flash de la carte (firmware et configuration). Faire « backup » avant.");
+        return 1;
+    }
+
+    FirmwareImage image = FirmwareImage.Load(file);
+    using DfuSeDevice? dfu = OpenDfu();
+    if (dfu is null)
+    {
+        return 1;
+    }
+
+    Console.WriteLine($"Écriture de {Path.GetFileName(file)} ({image.Segments.Sum(s => s.Data.Length)} octets) "
+        + $"sur le bootloader {dfu.SerialNumber}");
+    FirmwareUpdater.Flash(dfu, image, new DfuConsoleProgress());
+    Console.WriteLine();
+    Console.WriteLine("Écriture vérifiée.");
+    if (!args.Contains("--stay"))
+    {
+        dfu.Leave();
+        Console.WriteLine("Bootloader quitté : la carte redémarre sur le nouveau firmware.");
+    }
+    return 0;
+}
+
+int LeaveDfu()
+{
+    using DfuSeDevice? dfu = OpenDfu();
+    if (dfu is null)
+    {
+        return 1;
+    }
+    dfu.Leave();
+    Console.WriteLine("Bootloader quitté : la carte redémarre sur son firmware.");
+    return 0;
 }
 
 async Task<int> DumpAsync()
@@ -306,4 +444,10 @@ bool ReportReferenceJson(ODriveDevice device)
 internal sealed class InlineProgress(Action<int> report) : IProgress<int>
 {
     public void Report(int value) => report(value);
+}
+
+internal sealed class DfuConsoleProgress : IProgress<DfuProgress>
+{
+    public void Report(DfuProgress value) =>
+        Console.Write($"\r{value.Stage} : {value.Done}/{value.Total}        ");
 }

@@ -60,6 +60,16 @@ internal static partial class NativeMethods
         public byte Interface;
     }
 
+    [StructLayout(LayoutKind.Sequential, Pack = 1)]
+    public struct WinUsbSetupPacket
+    {
+        public byte RequestType;
+        public byte Request;
+        public ushort Value;
+        public ushort Index;
+        public ushort Length;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     public struct WinUsbPipeInformation
     {
@@ -135,6 +145,20 @@ internal static partial class NativeMethods
     [return: MarshalAs(UnmanagedType.Bool)]
     public static unsafe partial bool WinUsb_WritePipe(IntPtr interfaceHandle, byte pipeId, byte* buffer,
         uint bufferLength, out uint lengthTransferred, IntPtr overlapped);
+
+    [LibraryImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static unsafe partial bool WinUsb_ControlTransfer(IntPtr interfaceHandle, WinUsbSetupPacket setupPacket,
+        byte* buffer, uint bufferLength, out uint lengthTransferred, IntPtr overlapped);
+
+    [LibraryImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static unsafe partial bool WinUsb_GetDescriptor(IntPtr interfaceHandle, byte descriptorType, byte index,
+        ushort languageId, byte* buffer, uint bufferLength, out uint lengthTransferred);
+
+    [LibraryImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static partial bool WinUsb_SetCurrentAlternateSetting(IntPtr interfaceHandle, byte settingNumber);
 
     [LibraryImport("winusb.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

@@ -34,10 +34,28 @@ public static class WinUsbEnumerator
     /// du firmware et sur tous les GUID enregistrés pour les interfaces natives présentes : un pilote WinUSB
     /// installé par Zadig publie l'interface sous un GUID qui lui est propre.
     /// </summary>
-    public static IReadOnlyList<WinUsbDeviceInfo> Enumerate()
+    public static IReadOnlyList<WinUsbDeviceInfo> Enumerate() =>
+        EnumerateUsable(FindNativeInterfaces(), UsbDriverDiagnosis.IsNativeInterfacePath);
+
+    /// <summary>VID/PID du bootloader ROM des STM32 en mode DFU (<c>ref/ODrive/tools/odrive/dfu.py:250</c>).</summary>
+    public const ushort DfuVendorId = 0x0483;
+
+    /// <inheritdoc cref="DfuVendorId"/>
+    public const ushort DfuProductId = 0xDF11;
+
+    /// <summary>Bootloaders STM32 présents qui peuvent être ouverts par WinUSB.</summary>
+    public static IReadOnlyList<WinUsbDeviceInfo> EnumerateDfu() =>
+        EnumerateUsable(FindDfuDevices(), UsbDriverDiagnosis.IsDfuPath);
+
+    /// <summary>Bootloaders STM32 présents sur le bus USB, quel que soit leur pilote.</summary>
+    public static IReadOnlyList<NativeInterfaceStatus> FindDfuDevices() =>
+        ReadStatuses($@"USB\VID_{DfuVendorId:X4}&PID_{DfuProductId:X4}\");
+
+    private static List<WinUsbDeviceInfo> EnumerateUsable(IReadOnlyList<NativeInterfaceStatus> present,
+        Func<string, bool> isWanted)
     {
         var guids = new List<Guid> { DeviceInterfaceGuid };
-        foreach (NativeInterfaceStatus status in FindNativeInterfaces())
+        foreach (NativeInterfaceStatus status in present)
         {
             foreach (Guid guid in status.InterfaceGuids)
             {
@@ -53,7 +71,7 @@ public static class WinUsbEnumerator
         {
             foreach (string path in EnumerateInterfacePaths(guid))
             {
-                if (UsbDriverDiagnosis.IsNativeInterfacePath(path)
+                if (isWanted(path)
                     && !devices.Exists(d => string.Equals(d.DevicePath, path, StringComparison.OrdinalIgnoreCase)))
                 {
                     devices.Add(new WinUsbDeviceInfo(path));
@@ -108,10 +126,13 @@ public static class WinUsbEnumerator
     /// Interfaces natives ODrive présentes sur le bus USB, quel que soit leur pilote, avec ce que Windows en
     /// sait (pilote, GUID d'interface). Sert à <see cref="UsbDriverDiagnosis.Explain"/>.
     /// </summary>
-    public static IReadOnlyList<NativeInterfaceStatus> FindNativeInterfaces()
+    public static IReadOnlyList<NativeInterfaceStatus> FindNativeInterfaces() =>
+        ReadStatuses($@"USB\VID_{VendorId:X4}&PID_{ProductId:X4}&MI_{NativeInterfaceNumber:X2}\");
+
+    private static List<NativeInterfaceStatus> ReadStatuses(string instancePrefix)
     {
         var statuses = new List<NativeInterfaceStatus>();
-        foreach (string instanceId in FindNativeInterfaceInstances())
+        foreach (string instanceId in FindInstances(instancePrefix))
         {
             using RegistryKey? device = Registry.LocalMachine.OpenSubKey(EnumKeyPath(instanceId));
             using RegistryKey? parameters = device?.OpenSubKey("Device Parameters");
@@ -160,7 +181,8 @@ public static class WinUsbEnumerator
     }
 
     /// <summary>
-    /// Enregistre le GUID de toutes les interfaces natives présentes qui en manquent, puis redémarre chaque
+    /// Enregistre le GUID de toutes les interfaces présentes qui en manquent (interface native ODrive ou
+    /// bootloader STM32, tous deux pilotés par WinUSB), puis redémarre chaque
     /// périphérique (<c>pnputil /restart-device</c>) pour que WinUSB le publie. Droits administrateur requis.
     /// </summary>
     /// <returns>Identifiants d'instance corrigés.</returns>
@@ -168,7 +190,7 @@ public static class WinUsbEnumerator
     public static IReadOnlyList<string> RepairMissingInterfaceGuids()
     {
         var repaired = new List<string>();
-        foreach (NativeInterfaceStatus status in FindNativeInterfaces())
+        foreach (NativeInterfaceStatus status in FindNativeInterfaces().Concat(FindDfuDevices()))
         {
             if (!NeedsInterfaceGuid(status))
             {
@@ -189,9 +211,8 @@ public static class WinUsbEnumerator
 
     private static string EnumKeyPath(string instanceId) => @"SYSTEM\CurrentControlSet\Enum\" + instanceId;
 
-    private static List<string> FindNativeInterfaceInstances()
+    private static List<string> FindInstances(string prefix)
     {
-        string prefix = $@"USB\VID_{VendorId:X4}&PID_{ProductId:X4}&MI_{NativeInterfaceNumber:X2}\";
         var instances = new List<string>();
         IntPtr set = NativeMethods.SetupDiGetClassDevsAll(IntPtr.Zero, "USB", IntPtr.Zero,
             NativeMethods.DigcfPresent | NativeMethods.DigcfAllClasses);

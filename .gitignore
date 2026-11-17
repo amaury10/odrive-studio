@@ -6,3 +6,4 @@ ref/
 TestResults/
 *.log
 __pycache__/
+backups/

@@ -25,6 +25,7 @@ public sealed record NativeInterfaceStatus(string InstanceId, string? Service, I
 public static class UsbDriverDiagnosis
 {
     private const string NativeInterfacePathMarker = "vid_1209&pid_0d32&mi_02";
+    private const string DfuPathMarker = "vid_0483&pid_df11";
 
     /// <summary>Message pour l'utilisateur, ou <c>null</c> si toutes les cartes présentes sont utilisables.</summary>
     /// <param name="present">Interfaces natives présentes sur le bus.</param>
@@ -89,5 +90,42 @@ public static class UsbDriverDiagnosis
     {
         ArgumentNullException.ThrowIfNull(devicePath);
         return devicePath.Contains(NativeInterfacePathMarker, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Vrai si le chemin d'interface désigne un bootloader STM32 en mode DFU.</summary>
+    public static bool IsDfuPath(string devicePath)
+    {
+        ArgumentNullException.ThrowIfNull(devicePath);
+        return devicePath.Contains(DfuPathMarker, StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Message quand un bootloader STM32 est présent mais ne peut pas être ouvert, ou <c>null</c>.
+    /// Le bootloader ROM ne fournit aucun descripteur MS OS : Windows ne lui associe aucun pilote tout seul.
+    /// </summary>
+    public static string? ExplainDfu(IReadOnlyList<NativeInterfaceStatus> present, int usableCount)
+    {
+        ArgumentNullException.ThrowIfNull(present);
+        if (present.Count <= usableCount)
+        {
+            return null;
+        }
+
+        if (present.Any(status => !status.IsWinUsb))
+        {
+            string drivers = string.Join(", ", present.Select(status => status.Service ?? "aucun").Distinct());
+            return $"La carte est en mode DFU, mais son bootloader n'est pas piloté par WinUSB (pilote : {drivers}).\n"
+                + "Avec Zadig : Options > List All Devices, choisir « STM32 BOOTLOADER », sélectionner WinUSB puis "
+                + "Install Driver (ou Replace Driver).";
+        }
+
+        if (present.Any(status => status.InterfaceGuids.Count == 0))
+        {
+            return "La carte est en mode DFU et WinUSB est chargé, mais sans GUID d'interface : utiliser le bouton "
+                + "« Corriger » d'ODrive Studio, ou « odrive-cli fix-usb » dans un terminal administrateur.";
+        }
+
+        return "La carte est en mode DFU mais Windows ne publie pas encore son interface : débrancher puis "
+            + "rebrancher le câble USB.";
     }
 }
