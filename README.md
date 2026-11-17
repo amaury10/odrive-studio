@@ -22,6 +22,7 @@ configuration, courbes temps réel, réglage des boucles, autotune, anticogging,
 
 ## Outil console (phase 1)
 ```
+dotnet run --project src/ODriveStudio.App -- --sim      # application sur une carte simulée (moteurs d'hoverboard)
 dotnet run --project tools/ODrive.Cli -- list           # cartes branchées, diagnostic du pilote
 dotnet run --project tools/ODrive.Cli -- check          # lecture, écriture, clear_errors, reboot, reconnexion
 dotnet run --project tools/ODrive.Cli -- dump           # JSON d'endpoints + toutes les valeurs → fichier

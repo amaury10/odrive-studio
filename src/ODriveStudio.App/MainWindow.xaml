@@ -76,6 +76,33 @@
                     </StackPanel>
                 </Grid>
             </TabItem>
+            <TabItem Header="Mise en service" Padding="14,6">
+                <Grid>
+                    <ContentControl Content="{Binding SelectedDevice.Commissioning}"
+                                    Visibility="{Binding HasDevice, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="Aucune carte ODrive connectée." FontSize="15" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{StaticResource MutedText}"
+                               Visibility="{Binding HasDevice, Converter={StaticResource InverseBoolToVisibility}}" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="Essai moteur" Padding="14,6">
+                <Grid>
+                    <ContentControl Content="{Binding SelectedDevice.Jog}"
+                                    Visibility="{Binding HasDevice, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="Aucune carte ODrive connectée." FontSize="15" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{StaticResource MutedText}"
+                               Visibility="{Binding HasDevice, Converter={StaticResource InverseBoolToVisibility}}" />
+                </Grid>
+            </TabItem>
+            <TabItem Header="Profils" Padding="14,6">
+                <Grid>
+                    <ContentControl Content="{Binding SelectedDevice.Profiles}"
+                                    Visibility="{Binding HasDevice, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="Aucune carte ODrive connectée." FontSize="15" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{StaticResource MutedText}"
+                               Visibility="{Binding HasDevice, Converter={StaticResource InverseBoolToVisibility}}" />
+                </Grid>
+            </TabItem>
             <TabItem Header="Firmware" Padding="14,6">
                 <views:FirmwareView DataContext="{Binding Firmware}" />
             </TabItem>

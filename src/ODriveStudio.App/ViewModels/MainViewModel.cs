@@ -38,6 +38,9 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
         Session = session;
         Dashboard = new DashboardViewModel(session);
         Explorer = new ExplorerViewModel(session);
+        Commissioning = new CommissioningViewModel(session);
+        Jog = new JogViewModel(session);
+        Profiles = new ProfilesViewModel(session);
         SerialNumber = session.Device.SerialNumber.ToString("X", CultureInfo.InvariantCulture);
     }
 
@@ -45,6 +48,9 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
     public ODriveDevice Device => Session.Device;
     public DashboardViewModel Dashboard { get; }
     public ExplorerViewModel Explorer { get; }
+    public CommissioningViewModel Commissioning { get; }
+    public JogViewModel Jog { get; }
+    public ProfilesViewModel Profiles { get; }
     public string SerialNumber { get; }
 
     /// <summary>Faux pour une carte dont la zone OTP n'a pas été programmée par ODrive Robotics (clone) : odrivetool l'appelle « dev0 ».</summary>
@@ -55,6 +61,9 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
 
     /// <summary>Vrai quand l'onglet Explorateur est affiché : ses valeurs ne sont relues que dans ce cas.</summary>
     public bool ExplorerActive { get; set; }
+
+    /// <summary>Vrai quand l'onglet Mise en service est affiché : ses valeurs ne sont relues que dans ce cas.</summary>
+    public bool CommissioningActive { get; set; }
 
     /// <summary>Lit l'identité de la carte (versions, <c>otp_valid</c>).</summary>
     public async Task LoadIdentityAsync(CancellationToken ct = default)
@@ -82,6 +91,10 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
         {
             await Explorer.RefreshVisibleAsync(ct);
         }
+        if (CommissioningActive && !Commissioning.IsCalibrating)
+        {
+            await Commissioning.RefreshAsync(ct);
+        }
     }
 
     /// <summary>Boucle de rafraîchissement, jusqu'à la perte de la liaison ou <see cref="Dispose"/>.</summary>
@@ -106,6 +119,8 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
     /// <summary>Arrête la boucle de rafraîchissement.</summary>
     public void Dispose()
     {
+        Jog.Dispose();
+        Commissioning.Dispose();
         _polling.Cancel();
         _polling.Dispose();
     }
@@ -300,6 +315,7 @@ public sealed partial class MainViewModel : ObservableObject
         foreach (DeviceViewModel device in Devices)
         {
             device.ExplorerActive = ReferenceEquals(device, SelectedDevice) && SelectedTabIndex == 1;
+            device.CommissioningActive = ReferenceEquals(device, SelectedDevice) && SelectedTabIndex == 2;
         }
     }
 

@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Threading;
 using ODrive.Model;
+using ODrive.Model.Simulation;
 using ODrive.Protocol;
 using ODrive.Protocol.Dfu;
 using ODrive.Protocol.Simulation;
@@ -72,6 +73,8 @@ public partial class App : Application
     private static SimulatedDfuSource AddSimulatedBoard(List<ITransportSource> sources)
     {
         SimulatedODrive board = SimulatedODrive.CreateReference();
+        // Un moteur roue d'hoverboard « branché » sur chaque axe : calibrations, boucle fermée, watchdog.
+        SimulatedMotorModel.Attach(board);
         var normal = new SimulatedTransportSource(board);
         sources.Add(normal);
 

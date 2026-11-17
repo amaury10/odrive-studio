@@ -56,11 +56,28 @@ Reporté, avec la phase qui le portera :
 - limites temporaires et surveillance pendant l'exécution dans `SafetyGuard` : phase 5, avec les tests ;
 - cache disque du JSON et rapport de diagnostic en un clic (SPEC §11).
 
-## Phase 3 — Assistant de mise en service + profils
-- [ ] Assistant complet (SPEC §4) avec le préréglage hoverboard.
-- [ ] Profils JSON : export, import, comparaison, application sélective.
+## Phase 3 — Assistant de mise en service + profils + essai moteur ✅ (sur le simulateur)
+- [x] Simulateur : valeurs relevées sur une vraie v3.6-56V en 0.5.6 (`CreateReference`) et modèle moteur
+      (`SimulatedMotorModel`) : calibrations avec leurs conditions et erreurs, boucle fermée, watchdog.
+- [x] Assistant (onglet « Mise en service ») avec le préréglage hoverboard : valeurs proposées par étape et
+      modifiables, écarts avec la carte surlignés, écriture, sauvegarde + redémarrage, calibration complète
+      ou par étape avec annulation, contrôle de plausibilité (R, L, offset Hall), mémorisation
+      `pre_calibrated`, démarrage automatique optionnel, export du profil, liste d'avancement.
+- [x] Profils JSON (onglet « Profils ») : export, import, écarts avec la carte, application des seuls écarts
+      cochés, avertissement si le profil vient d'un autre firmware.
+- [x] Essai moteur (onglet « Essai moteur ») : jog en vitesse avec boutons à maintenir et vitesse continue,
+      limites temporaires restaurées, surveillance et watchdog de l'axe (docs/SAFETY.md).
 **Acceptation (matériel) :** un moteur d'hoverboard neuf passe de la configuration usine à la boucle
-fermée en vitesse uniquement avec l'assistant.
+fermée en vitesse uniquement avec l'assistant, puis tourne dans les deux sens depuis l'essai moteur.
+À faire sur le banc (alimentation, deux moteurs, résistance de freinage).
+
+Reporté :
+- préréglages gimbal et D5065, capteurs incrémental ABI et SPI absolu dans l'assistant (SPEC §4) : seul le
+  cas hoverboard / Hall est guidé, le reste se règle par l'explorateur ;
+- comparaison de deux fichiers de profil dans l'interface (la bibliothèque sait le faire : `CompareTo`) ;
+- écarts avec le profil chargé surlignés dans l'explorateur (SPEC §3) ;
+- « cause probable et action conseillée » par erreur (SPEC §2) : à écrire d'après les erreurs réellement
+  rencontrées sur le banc.
 
 ## Phase 4 — Courbes temps réel
 - [ ] PlotAcquisition à priorités, mesure de la cadence réelle, export CSV, déclenchement.

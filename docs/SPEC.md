@@ -42,6 +42,13 @@ Déroulé guidé, par axe, avec état visible de chaque étape et retour arrièr
 
 Préréglage hoverboard : voir `docs/HOVERBOARD.md`.
 
+### 4 bis. Essai moteur (jog)
+Écran de test manuel d'un axe, après calibration : l'axe est armé en boucle fermée de vitesse, consigne
+nulle, puis commandé par deux boutons à maintenir (le moteur s'arrête au relâchement) ou par un curseur de
+vitesse continue. Vitesse maximale, limite de courant et rampe sont propres à l'essai et temporaires : la
+carte retrouve ses réglages à la fin, y compris après un abandon. Affichage de la vitesse, du courant, de la
+tension du bus et de la température. Sécurité : voir `docs/SAFETY.md`.
+
 ## 5. Courbes temps réel
 - Acquisition par lecture cyclique USB (objectif ≥ 200 Hz agrégé ; mesurer et afficher la cadence réelle).
 - Jeux prédéfinis : vitesse (consigne / estimée), position, Iq (consigne / mesuré), Vbus / Ibus, températures.

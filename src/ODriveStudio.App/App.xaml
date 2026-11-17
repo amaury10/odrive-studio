@@ -50,5 +50,14 @@
         <DataTemplate DataType="{x:Type vm:ExplorerViewModel}">
             <views:ExplorerView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:CommissioningViewModel}">
+            <views:CommissioningView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:JogViewModel}">
+            <views:JogView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:ProfilesViewModel}">
+            <views:ProfilesView />
+        </DataTemplate>
     </Application.Resources>
 </Application>

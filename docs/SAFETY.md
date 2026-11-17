@@ -2,9 +2,12 @@
 
 - **Arrêt d'urgence** : touche `Échap` globale + bouton rouge toujours visible → `requested_state = IDLE`
   sur tous les axes de toutes les cartes, en priorité dans la file de requêtes (le plus haut niveau).
-- État du code (phase 2) : arrêt d'urgence, points 1 et 2 de SafetyGuard, journal et règle Save / Erase /
-  Reboot sont en place ; les points 3 et 4 (limites temporaires, surveillance) arrivent avec les tests de
-  la phase 5, et le watchdog pendant les tests avec eux.
+- État du code (phase 3) : arrêt d'urgence (les demandes IDLE de tous les axes entrent dans la file
+  d'un seul coup), points 1 et 2 de SafetyGuard pour toute demande d'état actif, journal et règle Save /
+  Erase / Reboot. Les points 3 et 4 (limites temporaires, surveillance) et le watchdog nourri par l'outil
+  sont en place pour l'essai moteur (`JogSession`) ; les calibrations de l'assistant passent par les points
+  1 et 2, avec retour en IDLE au délai dépassé ou à l'annulation. Le générateur de consignes de la phase 5
+  devra reprendre le même schéma que `JogSession`.
 - **SafetyGuard** : toute opération qui peut faire tourner un moteur (calibration, test, autotune,
   anticogging, générateur de consignes, simulation CAN) doit :
   1. vérifier l'état de la carte (pas d'erreur, Vbus dans la plage) ;

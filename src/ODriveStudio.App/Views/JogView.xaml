@@ -1,0 +1,92 @@
+<UserControl x:Class="ODriveStudio.App.Views.JogView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="900" HorizontalAlignment="Left">
+            <Border Style="{StaticResource Card}">
+                <StackPanel>
+                    <TextBlock Text="Essai moteur (jog en vitesse)" Style="{StaticResource CardTitle}" />
+                    <TextBlock TextWrapping="Wrap" Margin="0,6,0,10" Foreground="{StaticResource MutedText}"
+                               Text="Roue soulevée ou libre de tourner. Les limites ci-dessous ne valent que pendant l'essai : la carte retrouve ses réglages à la fin. Le watchdog de l'axe est armé pendant l'essai : si la liaison USB tombe, la carte arrête le moteur. Échap = arrêt d'urgence." />
+                    <WrapPanel IsEnabled="{Binding IsStopped}">
+                        <StackPanel Margin="0,0,20,0">
+                            <TextBlock Text="Axe" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <ComboBox ItemsSource="{Binding Axes}" SelectedItem="{Binding Axis}" Width="70" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,20,0">
+                            <TextBlock Text="Vitesse maximale (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding MaxVelocity, UpdateSourceTrigger=LostFocus}" Width="110" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,20,0">
+                            <TextBlock Text="Limite de courant (A)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding MaxCurrent, UpdateSourceTrigger=LostFocus}" Width="110" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="Rampe (tours/s²)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding RampRate, UpdateSourceTrigger=LostFocus}" Width="110" />
+                        </StackPanel>
+                    </WrapPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                        <Button Content="Armer l'axe" Command="{Binding StartCommand}" FontWeight="SemiBold" Padding="18,8" />
+                        <Button Content="Arrêter l'essai (IDLE)" Command="{Binding StopCommand}" Padding="18,8" />
+                        <Border Background="{StaticResource Armed}" CornerRadius="3" Padding="10,4" VerticalAlignment="Center"
+                                Visibility="{Binding IsRunning, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="MOTEUR ARMÉ" Foreground="White" FontWeight="Bold" />
+                        </Border>
+                    </StackPanel>
+                    <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Margin="0,10,0,0" FontWeight="SemiBold" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}" IsEnabled="{Binding IsRunning}">
+                <StackPanel>
+                    <TextBlock Text="Commande" Style="{StaticResource CardTitle}" />
+                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                        <StackPanel Margin="0,0,20,0">
+                            <TextBlock Text="Vitesse des boutons (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding JogSpeed, UpdateSourceTrigger=LostFocus}" Width="110" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <Button x:Name="Backward" Content="◀  Maintenir : sens −" Padding="24,14" FontSize="15"
+                                PreviewMouseLeftButtonDown="OnBackwardDown" PreviewMouseLeftButtonUp="OnJogUp"
+                                LostMouseCapture="OnJogLost" />
+                        <Button x:Name="Forward" Content="Maintenir : sens +  ▶" Padding="24,14" FontSize="15"
+                                PreviewMouseLeftButtonDown="OnForwardDown" PreviewMouseLeftButtonUp="OnJogUp"
+                                LostMouseCapture="OnJogLost" />
+                    </StackPanel>
+                    <TextBlock Text="Le moteur tourne tant que le bouton est maintenu et s'arrête au relâchement."
+                               Foreground="{StaticResource MutedText}" Margin="0,6,0,14" />
+
+                    <TextBlock Text="Vitesse continue (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
+                    <DockPanel Margin="0,4,0,0">
+                        <Button DockPanel.Dock="Right" Content="Zéro" Command="{Binding ZeroCommand}" Margin="12,0,0,0" Padding="18,6" />
+                        <Slider x:Name="Continuous" Minimum="-1" Maximum="1" Value="0" TickFrequency="0.25"
+                                TickPlacement="BottomRight" ValueChanged="OnContinuousChanged" VerticalAlignment="Center" />
+                    </DockPanel>
+                    <TextBlock Margin="0,6,0,0" FontFamily="Consolas" FontSize="15"
+                               Text="{Binding Command, StringFormat='Consigne : {0:F2} tours/s'}" />
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource Card}">
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,36,0">
+                        <TextBlock Text="Vitesse estimée" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Text="{Binding Velocity}" FontFamily="Consolas" FontSize="22" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,36,0">
+                        <TextBlock Text="Courant Iq" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Text="{Binding Current}" FontFamily="Consolas" FontSize="22" />
+                    </StackPanel>
+                    <StackPanel Margin="0,0,36,0">
+                        <TextBlock Text="Tension du bus" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Text="{Binding BusVoltage}" FontFamily="Consolas" FontSize="22" />
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Température FET" Style="{StaticResource FieldLabel}" Margin="0" />
+                        <TextBlock Text="{Binding FetTemperature}" FontFamily="Consolas" FontSize="22" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>
