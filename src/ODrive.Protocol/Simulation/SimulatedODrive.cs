@@ -34,6 +34,7 @@ public sealed class SimulatedCall
 public sealed class SimulatedODrive
 {
     private const string ReferenceJsonResource = "ODrive.Protocol.Simulation.odrive-v3.6-0.5.6.json";
+    private const string ReferenceDumpResource = "ODrive.Protocol.Simulation.odrive-v3.6-0.5.6.board.dump.json";
 
     private readonly Lock _gate = new();
     private readonly Dictionary<ushort, PropertyNode> _endpoints = [];
@@ -45,6 +46,11 @@ public sealed class SimulatedODrive
     private Dictionary<ushort, byte[]> _saved = [];
 
     public SimulatedODrive(ReadOnlySpan<byte> json)
+        : this(json, [])
+    {
+    }
+
+    private SimulatedODrive(ReadOnlySpan<byte> json, IEnumerable<KeyValuePair<string, object>> boardValues)
     {
         Schema = EndpointSchema.Parse(json);
 
@@ -65,7 +71,8 @@ public sealed class SimulatedODrive
             _values[endpoint.Id] = new byte[EndpointValue.SizeOf(endpoint.Type)];
         }
 
-        foreach ((string path, object value) in SimulatedDefaults.Values)
+        // Valeurs relevées sur une vraie carte, puis les valeurs imposées au simulateur par-dessus.
+        foreach ((string path, object value) in boardValues.Concat(SimulatedDefaults.Values))
         {
             if (FindEndpoint(path) is { } endpoint)
             {
@@ -86,15 +93,28 @@ public sealed class SimulatedODrive
 
     public EndpointSchema Schema { get; }
 
-    /// <summary>Carte simulée v3.6 en firmware 0.5.6, avec le JSON d'endpoints de référence.</summary>
+    /// <summary>
+    /// Carte simulée v3.6 en firmware 0.5.6, avec le JSON d'endpoints de référence. Elle démarre avec les
+    /// valeurs relevées sur une vraie v3.6-56V fraîchement flashée en 0.5.6, configuration d'usine
+    /// (<c>odrive-cli dump</c>, numéro de série remplacé), recouvertes par <see cref="SimulatedDefaults"/>.
+    /// </summary>
     public static SimulatedODrive CreateReference()
     {
         using Stream stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ReferenceJsonResource)
             ?? throw new InvalidOperationException($"Ressource {ReferenceJsonResource} introuvable.");
         using var memory = new MemoryStream();
         stream.CopyTo(memory);
-        return new SimulatedODrive(memory.ToArray());
+
+        using Stream dumpStream = Assembly.GetExecutingAssembly().GetManifestResourceStream(ReferenceDumpResource)
+            ?? throw new InvalidOperationException($"Ressource {ReferenceDumpResource} introuvable.");
+        return new SimulatedODrive(memory.ToArray(), DeviceDump.Load(dumpStream).Values);
     }
+
+    /// <summary>
+    /// Appelé avant le traitement de chaque requête adressée à un endpoint : c'est là qu'un modèle greffé
+    /// (moteur…) fait avancer son état. Sans requête, la carte simulée ne calcule rien.
+    /// </summary>
+    public event Action? BeforeRequest;
 
     /// <summary>
     /// Carte simulée qui démarre dans l'état d'une vraie carte (<c>ODrive.Cli dump</c>) : même JSON d'endpoints,
@@ -212,6 +232,10 @@ public sealed class SimulatedODrive
         bool rebooted;
         lock (_gate)
         {
+            if (endpointId != 0)
+            {
+                BeforeRequest?.Invoke();
+            }
             output = endpointId == 0
                 ? HandleEndpoint0(input, responseSize)
                 : HandleEndpoint(endpointId, input, responseSize, out suppressResponse);

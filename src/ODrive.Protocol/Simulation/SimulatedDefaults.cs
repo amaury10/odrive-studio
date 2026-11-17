@@ -1,10 +1,10 @@
 namespace ODrive.Protocol.Simulation;
 
 /// <summary>
-/// Valeurs au démarrage de la carte simulée (v3.6-56V, firmware 0.5.6). Les valeurs de configuration sont
-/// les défauts du firmware (fichier cité en regard, relatif à <c>ref/ODrive/Firmware/</c>) ; tout ce qui
-/// n'est pas listé vaut 0. Les enums sont donnés par leur valeur numérique : ce projet ne dépend pas du
-/// code généré. À compléter avec un vrai <c>ODrive.Cli dump</c> de la carte.
+/// Valeurs imposées à la carte simulée (v3.6-56V, firmware 0.5.6), par-dessus celles relevées sur une
+/// vraie carte (<see cref="SimulatedODrive.CreateReference"/>). Les valeurs de configuration sont les
+/// défauts du firmware (fichier cité en regard, relatif à <c>ref/ODrive/Firmware/</c>). Les enums sont
+/// donnés par leur valeur numérique : ce projet ne dépend pas du code généré.
 /// </summary>
 internal static class SimulatedDefaults
 {

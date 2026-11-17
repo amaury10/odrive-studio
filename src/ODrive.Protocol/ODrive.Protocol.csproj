@@ -9,5 +9,8 @@
     <!-- JSON d'endpoints de référence (firmware 0.5.6, v3.x) pour la carte simulée. -->
     <EmbeddedResource Include="../../tests/ODrive.Protocol.Tests/data/odrive-v3.6-0.5.6.json"
                       LogicalName="ODrive.Protocol.Simulation.odrive-v3.6-0.5.6.json" />
+    <!-- Valeurs relevées sur une vraie carte (odrive-cli dump), numéro de série remplacé. -->
+    <EmbeddedResource Include="../../tests/ODrive.Protocol.Tests/data/odrive-v3.6-0.5.6.board.dump.json"
+                      LogicalName="ODrive.Protocol.Simulation.odrive-v3.6-0.5.6.board.dump.json" />
   </ItemGroup>
 </Project>
