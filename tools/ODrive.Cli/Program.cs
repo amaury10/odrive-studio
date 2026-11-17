@@ -62,7 +62,7 @@ int Help()
     Console.WriteLine(
         """
         odrive-cli list                      liste les cartes ODrive branchées en USB
-        odrive-cli fix-usb                   enregistre le GUID d'interface WinUSB manquant (terminal administrateur)
+        odrive-cli fix-usb                   installe le pilote WinUSB et le GUID d'interface manquants (administrateur)
         odrive-cli dump  [--sim] [--out f]   écrit le JSON d'endpoints et toutes les valeurs de la carte
         odrive-cli check [--sim]             contrôle d'acceptation de la phase 1 (lecture, écriture, fonction, reboot)
 
@@ -108,26 +108,27 @@ int List()
 // puis redémarre le périphérique pour que WinUSB le publie.
 int FixUsb()
 {
-    IReadOnlyList<string> repaired;
+    IReadOnlyList<string> report;
     try
     {
-        repaired = WinUsbEnumerator.RepairMissingInterfaceGuids();
+        report = WinUsbEnumerator.Repair();
     }
-    catch (UnauthorizedAccessException)
+    catch (UnauthorizedAccessException e)
     {
+        Console.Error.WriteLine(e.Message);
         Console.Error.WriteLine("Droits administrateur requis : relancer cette commande dans un terminal "
             + "ouvert « en tant qu'administrateur ».");
         return 1;
     }
 
-    if (repaired.Count == 0)
+    if (report.Count == 0)
     {
-        Console.WriteLine("Rien à corriger : aucune interface native pilotée par WinUSB sans GUID d'interface.");
+        Console.WriteLine("Rien à corriger : aucune interface sans pilote ni sans GUID d'interface.");
         return List();
     }
-    foreach (string instance in repaired)
+    foreach (string line in report)
     {
-        Console.WriteLine($"GUID {WinUsbEnumerator.DeviceInterfaceGuid:B} enregistré pour {instance}");
+        Console.WriteLine(line);
     }
 
     // Laisse à Windows le temps de redémarrer le périphérique.

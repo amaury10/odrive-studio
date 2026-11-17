@@ -225,9 +225,10 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
         if (!_dialogs.Confirm("Corriger le pilote USB",
-            "Windows a chargé le pilote WinUSB de la carte, mais sans GUID d'interface (défaut du firmware) : "
-            + "la carte ne peut pas être ouverte.\n\nLa correction écrit une valeur dans le registre "
-            + "(DeviceInterfaceGUIDs) puis redémarre le périphérique USB. Windows va demander les droits "
+            "Windows ne sait pas ouvrir l'interface native de la carte : pilote absent, ou pilote WinUSB sans "
+            + "GUID d'interface (défauts du firmware).\n\nLa correction associe le pilote WinUSB fourni avec "
+            + "Windows à la carte, écrit une valeur dans le registre (DeviceInterfaceGUIDs) puis redémarre le "
+            + "périphérique USB. Windows va demander les droits "
             + "administrateur pour cette seule opération.\n\nContinuer ?"))
         {
             return;

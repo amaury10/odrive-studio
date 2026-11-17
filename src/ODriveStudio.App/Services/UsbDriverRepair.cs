@@ -22,7 +22,7 @@ public enum UsbRepairOutcome
 /// </summary>
 public interface IUsbDriverRepair
 {
-    /// <summary>Vrai si une carte branchée a WinUSB chargé mais aucun GUID d'interface.</summary>
+    /// <summary>Vrai si une carte branchée n'a aucun pilote, ou WinUSB sans GUID d'interface.</summary>
     bool IsNeeded { get; }
 
     /// <summary>Applique la correction avec les droits administrateur, pour cette seule opération.</summary>
@@ -46,7 +46,8 @@ public sealed class ElevatedUsbDriverRepair : IUsbDriverRepair
         {
             try
             {
-                return WinUsbEnumerator.FindNativeInterfaces().Any(WinUsbEnumerator.NeedsInterfaceGuid);
+                return WinUsbEnumerator.FindNativeInterfaces().Concat(WinUsbEnumerator.FindDfuDevices())
+                    .Any(WinUsbEnumerator.NeedsRepair);
             }
             catch (Win32Exception)
             {
@@ -91,7 +92,7 @@ public sealed class ElevatedUsbDriverRepair : IUsbDriverRepair
     {
         try
         {
-            return WinUsbEnumerator.RepairMissingInterfaceGuids().Count > 0 ? 0 : 2;
+            return WinUsbEnumerator.Repair().Count > 0 ? 0 : 2;
         }
         catch (Exception e) when (e is UnauthorizedAccessException or IOException or Win32Exception)
         {

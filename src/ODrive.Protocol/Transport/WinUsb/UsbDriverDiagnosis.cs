@@ -9,6 +9,9 @@ public sealed record NativeInterfaceStatus(string InstanceId, string? Service, I
 {
     /// <summary>Vrai si le pilote de l'interface est WinUSB.</summary>
     public bool IsWinUsb => string.Equals(Service, "WINUSB", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Vrai si Windows n'a associé aucun pilote au périphérique.</summary>
+    public bool HasNoDriver => string.IsNullOrEmpty(Service);
 }
 
 /// <summary>
@@ -38,10 +41,17 @@ public static class UsbDriverDiagnosis
             return null;
         }
 
+        if (present.Any(status => status.HasNoDriver))
+        {
+            return "Une carte ODrive est branchée, mais Windows n'a associé aucun pilote à son interface native "
+                + "(cas du firmware 0.5.6 officiel).\nCorrection, une fois par carte et par port USB : bouton "
+                + "« Corriger » d'ODrive Studio, ou « odrive-cli fix-usb » dans un terminal administrateur.";
+        }
+
         if (present.Any(status => !status.IsWinUsb))
         {
-            return "Une carte ODrive est branchée, mais son interface native n'est pas pilotée par WinUSB "
-                + "(pilote absent, ou autre pilote : libusb-win32, libusbK…).\nAvec Zadig : Options > List All "
+            return "Une carte ODrive est branchée, mais son interface native est pilotée par un autre pilote que "
+                + "WinUSB (libusb-win32, libusbK…).\nAvec Zadig : Options > List All "
                 + "Devices, choisir « ODrive 3.6 Native Interface (Interface 2) », sélectionner WinUSB puis "
                 + "Replace Driver.";
         }
@@ -109,6 +119,13 @@ public static class UsbDriverDiagnosis
         if (present.Count <= usableCount)
         {
             return null;
+        }
+
+        if (present.Any(status => status.HasNoDriver))
+        {
+            return "La carte est en mode DFU, mais Windows n'a associé aucun pilote à son bootloader.\n"
+                + "Correction : bouton « Corriger » d'ODrive Studio, ou « odrive-cli fix-usb » dans un terminal "
+                + "administrateur.";
         }
 
         if (present.Any(status => !status.IsWinUsb))

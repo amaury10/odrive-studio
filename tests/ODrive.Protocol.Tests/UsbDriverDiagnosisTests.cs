@@ -44,10 +44,32 @@ public class UsbDriverDiagnosisTests
     }
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    public void No_driver_at_all_is_repaired_by_the_tool(string? service)
+    {
+        // Cas réel après passage au firmware 0.5.6 officiel : installation en échec, aucun pilote.
+        var status = new NativeInterfaceStatus(Instance, service, []);
+
+        string? hint = UsbDriverDiagnosis.Explain([status], usableCount: 0);
+
+        hint.Should().Contain("aucun pilote").And.Contain("fix-usb");
+        hint.Should().NotContain("Zadig");
+        WinUsbEnumerator.NeedsRepair(status).Should().BeTrue();
+    }
+
+    [Fact]
+    public void A_board_with_another_driver_is_left_alone_by_the_repair()
+    {
+        WinUsbEnumerator.NeedsRepair(new NativeInterfaceStatus(Instance, "libusb0", [])).Should().BeFalse();
+        WinUsbEnumerator.NeedsRepair(new NativeInterfaceStatus(Instance, "WINUSB", [])).Should().BeTrue();
+        WinUsbEnumerator.NeedsRepair(new NativeInterfaceStatus(Instance, "WINUSB", [FirmwareGuid])).Should().BeFalse();
+    }
+
+    [Theory]
     [InlineData("libusb0")]
     [InlineData("libusbK")]
-    [InlineData(null)]
-    public void Another_driver_or_no_driver_points_to_zadig(string? service)
+    public void Another_driver_points_to_zadig(string? service)
     {
         var present = new[] { new NativeInterfaceStatus(Instance, service, []) };
 

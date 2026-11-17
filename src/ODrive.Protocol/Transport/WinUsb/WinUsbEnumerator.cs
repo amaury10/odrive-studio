@@ -173,32 +173,42 @@ public static class WinUsbEnumerator
         }
     }
 
-    /// <summary>Vrai si l'interface est pilotée par WinUSB mais n'a aucun GUID d'interface.</summary>
-    public static bool NeedsInterfaceGuid(NativeInterfaceStatus status)
+    /// <summary>
+    /// Vrai si <see cref="Repair"/> sait rendre le périphérique utilisable : aucun pilote, ou WinUSB sans
+    /// GUID d'interface. Un périphérique confié à un autre pilote (libusb…) n'est pas touché.
+    /// </summary>
+    public static bool NeedsRepair(NativeInterfaceStatus status)
     {
         ArgumentNullException.ThrowIfNull(status);
-        return status.IsWinUsb && status.InterfaceGuids.Count == 0;
+        return status.HasNoDriver || (status.IsWinUsb && status.InterfaceGuids.Count == 0);
     }
 
     /// <summary>
-    /// Enregistre le GUID de toutes les interfaces présentes qui en manquent (interface native ODrive ou
-    /// bootloader STM32, tous deux pilotés par WinUSB), puis redémarre chaque
-    /// périphérique (<c>pnputil /restart-device</c>) pour que WinUSB le publie. Droits administrateur requis.
+    /// Rend utilisables les interfaces présentes (interface native ODrive et bootloader STM32) : installe le
+    /// pilote WinUSB de Windows là où il n'y a aucun pilote (<see cref="WinUsbDriverInstaller"/>), enregistre
+    /// le GUID d'interface manquant, puis redémarre le périphérique (<c>pnputil /restart-device</c>) pour que
+    /// WinUSB le publie. Droits administrateur requis.
     /// </summary>
-    /// <returns>Identifiants d'instance corrigés.</returns>
+    /// <returns>Une ligne de compte rendu par action effectuée.</returns>
     /// <exception cref="UnauthorizedAccessException">Le processus n'est pas administrateur.</exception>
-    public static IReadOnlyList<string> RepairMissingInterfaceGuids()
+    public static IReadOnlyList<string> Repair()
     {
-        var repaired = new List<string>();
+        var report = new List<string>();
         foreach (NativeInterfaceStatus status in FindNativeInterfaces().Concat(FindDfuDevices()))
         {
-            if (!NeedsInterfaceGuid(status))
+            if (!NeedsRepair(status))
             {
                 continue;
             }
 
+            if (status.HasNoDriver)
+            {
+                WinUsbDriverInstaller.InstallInboxWinUsb(status.InstanceId);
+                report.Add($"Pilote WinUSB installé pour {status.InstanceId}");
+            }
+
             RegisterInterfaceGuid(status.InstanceId);
-            repaired.Add(status.InstanceId);
+            report.Add($"GUID {DeviceInterfaceGuid:B} enregistré pour {status.InstanceId}");
 
             var restart = new ProcessStartInfo("pnputil.exe") { UseShellExecute = false, CreateNoWindow = true };
             restart.ArgumentList.Add("/restart-device");
@@ -206,7 +216,7 @@ public static class WinUsbEnumerator
             using Process? process = Process.Start(restart);
             process?.WaitForExit(10_000);
         }
-        return repaired;
+        return report;
     }
 
     private static string EnumKeyPath(string instanceId) => @"SYSTEM\CurrentControlSet\Enum\" + instanceId;
