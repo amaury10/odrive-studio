@@ -13,6 +13,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/ODrive.Protocol.Tests/ODrive.Protocol.Tests.csproj" />
     <Project Path="tests/ODrive.Model.Tests/ODrive.Model.Tests.csproj" />
+    <Project Path="tests/ODrive.Tuning.Tests/ODrive.Tuning.Tests.csproj" />
     <Project Path="tests/ODriveStudio.App.Tests/ODriveStudio.App.Tests.csproj" />
   </Folder>
 </Solution>
