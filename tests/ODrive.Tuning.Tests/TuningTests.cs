@@ -535,7 +535,8 @@ public class JogSessionTests
         (await bench.Odrv.Axis0.Controller.InputVel.GetAsync()).Should().Be(0f);
         // Relevé sur le banc : avec vel_limit = vitesse maximale, le firmware coupe en OVERSPEED dès 1,2 × la
         // limite (controller.cpp:337), ce que le bruit des capteurs Hall atteint à la vitesse maximale.
-        (await bench.Odrv.Axis0.Controller.Config.VelLimit.GetAsync()).Should().Be(1.5f * 1.5f + 0.5f);
+        (await bench.Odrv.Axis0.Controller.Config.VelLimit.GetAsync()).Should().Be(1.5f);
+        (await bench.Odrv.Axis0.Controller.Config.VelLimitTolerance.GetAsync()).Should().BeApproximately(2.75f / 1.5f, 1e-5f);
         (await bench.Odrv.Axis0.Motor.Config.CurrentLim.GetAsync()).Should().Be(6f);
         (await bench.Odrv.Axis0.Config.EnableWatchdog.GetAsync()).Should().BeTrue();
         await session.DisposeAsync();
@@ -555,6 +556,54 @@ public class JogSessionTests
         session.IsRunning.Should().BeTrue();
         await session.SetVelocityAsync(-9f);
         await Bench.WaitUntilAsync(() => last is { Velocity: < -1.4f });
+        await session.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Torque_mode_starts_at_zero_torque_with_the_velocity_limiter_on()
+    {
+        var (bench, session) = await StartAsync(new JogLimits(MaxVelocity: 3f) { Mode = JogMode.Torque, MaxTorque = 0.8f, TorqueRampRate = 4f });
+
+        (await bench.Odrv.Axis0.CurrentState.GetAsync()).Should().Be(AxisState.ClosedLoopControl);
+        (await bench.Odrv.Axis0.Controller.Config.ControlMode.GetAsync()).Should().Be(ControlMode.TorqueControl);
+        (await bench.Odrv.Axis0.Controller.Config.InputMode.GetAsync()).Should().Be(InputMode.TorqueRamp);
+        (await bench.Odrv.Axis0.Controller.Config.TorqueRampRate.GetAsync()).Should().Be(4f);
+        (await bench.Odrv.Axis0.Controller.Config.EnableTorqueModeVelLimit.GetAsync()).Should().BeTrue();
+        (await bench.Odrv.Axis0.Controller.Config.VelLimit.GetAsync()).Should().Be(3f);
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(0f);
+        await session.DisposeAsync();
+    }
+
+    [Fact]
+    public async Task Torque_commands_are_clamped_and_the_speed_stays_under_the_limit()
+    {
+        var (bench, session) = await StartAsync(new JogLimits(MaxVelocity: 3f) { Mode = JogMode.Torque, MaxTorque = 0.8f });
+        JogReading? last = null;
+        session.ReadingAvailable += (_, reading) => last = reading;
+
+        await session.SetVelocityAsync(2f); // ignorée : l'essai est en couple
+        (await bench.Odrv.Axis0.Controller.InputVel.GetAsync()).Should().Be(0f);
+
+        await session.SetTorqueAsync(9f);
+
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(0.8f);
+        await Bench.WaitUntilAsync(() => last is { Velocity: > 2.5f });
+        last!.Velocity.Should().BeLessThanOrEqualTo(3.01f);
+        session.IsRunning.Should().BeTrue();
+
+        await session.DisposeAsync();
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(0f);
+        (await bench.Odrv.Axis0.CurrentState.GetAsync()).Should().Be(AxisState.Idle);
+    }
+
+    [Fact]
+    public async Task Torque_commands_are_ignored_in_velocity_mode()
+    {
+        var (bench, session) = await StartAsync();
+
+        await session.SetTorqueAsync(1f);
+
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(0f);
         await session.DisposeAsync();
     }
 

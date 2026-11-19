@@ -395,6 +395,32 @@ public class JogViewModelTests
     }
 
     [Fact]
+    public async Task In_torque_mode_the_hold_buttons_command_a_torque()
+    {
+        await using MotorBench bench = await MotorBench.CreateAsync();
+        await bench.CalibratedAsync();
+        var jog = new JogViewModel(bench.Session) { Delay = bench.DelayAsync, MaxTorque = 1f, JogTorque = 0.4f };
+        jog.Mode = jog.Modes[1];
+        jog.IsTorqueMode.Should().BeTrue();
+        jog.CommandUnit.Should().Be("Nm");
+        jog.CommandLimit.Should().Be(1f);
+
+        await jog.StartCommand.ExecuteAsync(null);
+        jog.Message.Should().Contain("couple");
+
+        await jog.PressAsync(-1);
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(-0.4f);
+        jog.Command.Should().Be(-0.4f);
+
+        await jog.SetCommandAsync(5f);
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(1f);
+
+        await jog.ReleaseAsync();
+        (await bench.Odrv.Axis0.Controller.InputTorque.GetAsync()).Should().Be(0f);
+        await jog.StopCommand.ExecuteAsync(null);
+    }
+
+    [Fact]
     public async Task Commands_are_clamped_to_the_maximum_velocity()
     {
         await using MotorBench bench = await MotorBench.CreateAsync();

@@ -28,8 +28,44 @@ public sealed partial class JogViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(StartCommand))]
     private int _axis;
 
-    /// <summary>Vitesse maximale de l'essai, en tours/s.</summary>
-    [ObservableProperty] private float _maxVelocity = 2f;
+    /// <summary>Grandeurs commandables : vitesse (par défaut) ou couple.</summary>
+    public IReadOnlyList<string> Modes { get; } = ["Vitesse", "Couple"];
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsTorqueMode), nameof(IsVelocityMode), nameof(CommandUnit), nameof(CommandLimit),
+        nameof(CommandText))]
+    private string _mode = "Vitesse";
+
+    public bool IsTorqueMode => Mode == Modes[1];
+
+    public bool IsVelocityMode => !IsTorqueMode;
+
+    /// <summary>Unité de la consigne dans le mode choisi.</summary>
+    public string CommandUnit => IsTorqueMode ? "Nm" : "tours/s";
+
+    /// <summary>Plus grande consigne acceptée dans le mode choisi (borne du curseur).</summary>
+    public float CommandLimit => Math.Abs(IsTorqueMode ? MaxTorque : MaxVelocity);
+
+    public string CommandText => string.Create(CultureInfo.InvariantCulture, $"Consigne : {Command:F2} {CommandUnit}");
+
+    /// <summary>
+    /// Vitesse maximale de l'essai, en tours/s. En mode couple, c'est la vitesse à laquelle le firmware réduit
+    /// le couple : une roue libre s'y stabilise.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CommandLimit))]
+    private float _maxVelocity = 2f;
+
+    /// <summary>Couple maximal commandable en mode couple, en Nm.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CommandLimit))]
+    private float _maxTorque = 1f;
+
+    /// <summary>Rampe de la consigne de couple, en Nm/s.</summary>
+    [ObservableProperty] private float _torqueRampRate = 2f;
+
+    /// <summary>Couple des boutons à maintenir, en Nm.</summary>
+    [ObservableProperty] private float _jogTorque = 0.5f;
 
     /// <summary>Limite de courant pendant l'essai, en ampères.</summary>
     [ObservableProperty] private float _maxCurrent = 10f;
@@ -40,8 +76,10 @@ public sealed partial class JogViewModel : ObservableObject, IDisposable
     /// <summary>Vitesse des boutons à maintenir, en tours/s.</summary>
     [ObservableProperty] private float _jogSpeed = 1f;
 
-    /// <summary>Consigne en cours, en tours/s.</summary>
-    [ObservableProperty] private float _command;
+    /// <summary>Consigne en cours, en tours/s ou en Nm selon le mode.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CommandText))]
+    private float _command;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(StartCommand), nameof(StopCommand), nameof(ZeroCommand))]
@@ -67,7 +105,12 @@ public sealed partial class JogViewModel : ObservableObject, IDisposable
     {
         await _session.RunAsync("Essai moteur", async () =>
         {
-            var limits = new JogLimits(MaxVelocity, MaxCurrent, RampRate);
+            var limits = new JogLimits(MaxVelocity, MaxCurrent, RampRate)
+            {
+                Mode = IsTorqueMode ? JogMode.Torque : JogMode.Velocity,
+                MaxTorque = MaxTorque,
+                TorqueRampRate = TorqueRampRate,
+            };
             (JogSession? jog, string? refusal) = await JogSession.StartAsync(_session.Device, Axis, limits,
                 _session.Guard, question => _session.Dialogs.Confirm("Mise en mouvement", question), Delay);
             if (jog is null)
@@ -83,8 +126,11 @@ public sealed partial class JogViewModel : ObservableObject, IDisposable
             IsRunning = jog.IsRunning;
             if (IsRunning)
             {
-                Say(string.Create(CultureInfo.InvariantCulture,
-                    $"Axe {Axis} armé, consigne nulle. Limites de l'essai : {MaxVelocity:G3} tours/s, {MaxCurrent:G3} A."));
+                Say(IsTorqueMode
+                    ? string.Create(CultureInfo.InvariantCulture,
+                        $"Axe {Axis} armé en couple, consigne nulle. Limites de l'essai : {MaxTorque:G3} Nm, {MaxVelocity:G3} tours/s, {MaxCurrent:G3} A.")
+                    : string.Create(CultureInfo.InvariantCulture,
+                        $"Axe {Axis} armé, consigne nulle. Limites de l'essai : {MaxVelocity:G3} tours/s, {MaxCurrent:G3} A."));
             }
         });
     }
@@ -104,20 +150,27 @@ public sealed partial class JogViewModel : ObservableObject, IDisposable
     private Task ZeroAsync() => SetCommandAsync(0);
 
     /// <summary>Bouton à maintenir enfoncé : +1 = sens positif, −1 = sens négatif.</summary>
-    public Task PressAsync(int direction) => SetCommandAsync(Math.Sign(direction) * Math.Abs(JogSpeed));
+    public Task PressAsync(int direction) => SetCommandAsync(Math.Sign(direction) * Math.Abs(IsTorqueMode ? JogTorque : JogSpeed));
 
     /// <summary>Relâchement d'un bouton à maintenir : arrêt.</summary>
     public Task ReleaseAsync() => SetCommandAsync(0);
 
-    /// <summary>Applique une consigne de vitesse, en tours/s (bornée par la limite de l'essai).</summary>
-    public async Task SetCommandAsync(float turnsPerSecond)
+    /// <summary>Applique une consigne, en tours/s ou en Nm selon le mode (bornée par la limite de l'essai).</summary>
+    public async Task SetCommandAsync(float value)
     {
         if (_jog is not { IsRunning: true } jog)
         {
             return;
         }
-        Command = Math.Clamp(turnsPerSecond, -MaxVelocity, MaxVelocity);
-        await _session.RunAsync("Consigne de vitesse", () => jog.SetVelocityAsync(Command));
+        Command = Math.Clamp(value, -CommandLimit, CommandLimit);
+        if (IsTorqueMode)
+        {
+            await _session.RunAsync("Consigne de couple", () => jog.SetTorqueAsync(Command));
+        }
+        else
+        {
+            await _session.RunAsync("Consigne de vitesse", () => jog.SetVelocityAsync(Command));
+        }
     }
 
     /// <summary>Arrête l'essai si la vue disparaît (carte débranchée, fermeture).</summary>

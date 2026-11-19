@@ -49,6 +49,10 @@ vitesse continue. Vitesse maximale, limite de courant et rampe sont propres à l
 carte retrouve ses réglages à la fin, y compris après un abandon. Affichage de la vitesse, du courant, de la
 tension du bus et de la température. Sécurité : voir `docs/SAFETY.md`.
 
+Deux grandeurs commandables, au choix avant d'armer : la vitesse (tours/s) ou le couple (Nm, `TORQUE_CONTROL`
+avec rampe de couple). En couple, la vitesse maximale de l'essai reste active : c'est le limiteur de vitesse du
+firmware (`enable_torque_mode_vel_limit`) qui empêche une roue libre de s'emballer.
+
 ## 5. Courbes temps réel
 - Acquisition par lecture cyclique USB (objectif ≥ 200 Hz agrégé ; mesurer et afficher la cadence réelle).
 - Jeux prédéfinis : vitesse (consigne / estimée), position, Iq (consigne / mesuré), Vbus / Ibus, températures.

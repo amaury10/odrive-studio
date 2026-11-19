@@ -5,6 +5,16 @@ using ODrive.Tuning.Commissioning;
 
 namespace ODrive.Tuning.Jog;
 
+/// <summary>Grandeur commandée pendant l'essai.</summary>
+public enum JogMode
+{
+    /// <summary>Consigne de vitesse, en tours/s.</summary>
+    Velocity,
+
+    /// <summary>Consigne de couple, en Nm ; la vitesse reste bornée par le limiteur du firmware.</summary>
+    Torque,
+}
+
 /// <summary>Bornes d'un essai manuel du moteur.</summary>
 /// <param name="MaxVelocity">Vitesse maximale commandable, en tours/s.</param>
 /// <param name="MaxCurrent">Limite de courant moteur pendant l'essai, en ampères.</param>
@@ -17,13 +27,22 @@ public sealed record JogLimits(float MaxVelocity = 2f, float MaxCurrent = 10f, f
     /// <summary>Délai du watchdog de l'axe pendant l'essai, en secondes.</summary>
     public float WatchdogTimeout { get; init; } = 1f;
 
+    public JogMode Mode { get; init; } = JogMode.Velocity;
+
+    /// <summary>Couple maximal commandable en mode couple, en Nm.</summary>
+    public float MaxTorque { get; init; } = 1f;
+
+    /// <summary>Rampe de la consigne de couple, en Nm/s.</summary>
+    public float TorqueRampRate { get; init; } = 2f;
+
     /// <summary>
-    /// <c>vel_limit</c> écrit dans la carte pendant l'essai, en tours/s, et seuil d'abandon de la surveillance.
-    /// Plus large que <see cref="MaxVelocity"/> : le firmware coupe en OVERSPEED dès que l'estimation dépasse
-    /// <c>vel_limit_tolerance</c> (1,2) × <c>vel_limit</c> (controller.cpp:337), et l'estimation tirée de
-    /// capteurs Hall est bruitée. La consigne, elle, reste bornée à <see cref="MaxVelocity"/> par l'outil.
+    /// Vitesse à laquelle l'essai est coupé, en tours/s : par le firmware (OVERSPEED) et par la surveillance.
+    /// Plus large que <see cref="MaxVelocity"/> : avec la tolérance par défaut (1,2 × <c>vel_limit</c>,
+    /// controller.cpp:337), le bruit de l'estimation tirée de capteurs Hall suffit à couper l'essai à la
+    /// vitesse maximale. <c>vel_limit</c> reste à <see cref="MaxVelocity"/> (c'est lui qui borne la vitesse en
+    /// mode couple, controller.cpp:388-393) et c'est <c>vel_limit_tolerance</c> qui est élargi.
     /// </summary>
-    public float FirmwareVelocityLimit => MaxVelocity * 1.5f + 0.5f;
+    public float OverspeedVelocity => MaxVelocity * 1.5f + 0.5f;
 }
 
 /// <summary>Mesures relevées pendant l'essai.</summary>
@@ -34,7 +53,7 @@ public sealed record JogLimits(float MaxVelocity = 2f, float MaxCurrent = 10f, f
 public sealed record JogReading(float Velocity, float Current, float BusVoltage, float FetTemperature);
 
 /// <summary>
-/// Essai manuel (« jog ») d'un axe en vitesse, selon docs/SAFETY.md :
+/// Essai manuel (« jog ») d'un axe, en vitesse ou en couple, selon docs/SAFETY.md :
 /// contrôle de la carte et confirmation (<see cref="SafetyGuard"/>), limites temporaires de vitesse et de
 /// courant restaurées à la fin quoi qu'il arrive, surveillance continue (état, vitesse, courant, Vbus,
 /// température) avec abandon au premier dépassement, et watchdog de l'axe armé et nourri par l'outil : si la
@@ -81,9 +100,9 @@ public sealed class JogSession : IAsyncDisposable
         ArgumentNullException.ThrowIfNull(device);
         ArgumentNullException.ThrowIfNull(limits);
         ArgumentNullException.ThrowIfNull(guard);
-        if (limits.MaxVelocity <= 0 || limits.MaxCurrent <= 0 || limits.RampRate <= 0)
+        if (limits.MaxVelocity <= 0 || limits.MaxCurrent <= 0 || limits.RampRate <= 0 || limits.MaxTorque <= 0 || limits.TorqueRampRate <= 0)
         {
-            return (null, "Les limites de vitesse, de courant et de rampe doivent être positives.");
+            return (null, "Les limites de vitesse, de courant, de couple et de rampe doivent être positives.");
         }
 
         SafetyDecision decision = await guard.AuthorizeMotionAsync(device, confirm, ct).ConfigureAwait(false);
@@ -96,11 +115,25 @@ public sealed class JogSession : IAsyncDisposable
         try
         {
             // Limites temporaires : tout ce qui est écrit ici est restauré par EndAsync.
-            await session.OverrideAsync("controller.config.control_mode", (byte)ControlMode.VelocityControl, ct).ConfigureAwait(false);
-            await session.OverrideAsync("controller.config.input_mode", (byte)InputMode.VelRamp, ct).ConfigureAwait(false);
-            await session.OverrideAsync("controller.config.vel_ramp_rate", limits.RampRate, ct).ConfigureAwait(false);
-            await session.OverrideAsync("controller.config.vel_limit", limits.FirmwareVelocityLimit, ct).ConfigureAwait(false);
+            if (limits.Mode == JogMode.Torque)
+            {
+                await session.OverrideAsync("controller.config.control_mode", (byte)ControlMode.TorqueControl, ct).ConfigureAwait(false);
+                await session.OverrideAsync("controller.config.input_mode", (byte)InputMode.TorqueRamp, ct).ConfigureAwait(false);
+                await session.OverrideAsync("controller.config.torque_ramp_rate", limits.TorqueRampRate, ct).ConfigureAwait(false);
+                // Sans ce limiteur, un couple constant emballe une roue libre (controller.cpp:388).
+                await session.OverrideAsync("controller.config.enable_torque_mode_vel_limit", true, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                await session.OverrideAsync("controller.config.control_mode", (byte)ControlMode.VelocityControl, ct).ConfigureAwait(false);
+                await session.OverrideAsync("controller.config.input_mode", (byte)InputMode.VelRamp, ct).ConfigureAwait(false);
+                await session.OverrideAsync("controller.config.vel_ramp_rate", limits.RampRate, ct).ConfigureAwait(false);
+            }
+            await session.OverrideAsync("controller.config.vel_limit", limits.MaxVelocity, ct).ConfigureAwait(false);
+            await session.OverrideAsync("controller.config.vel_limit_tolerance", limits.OverspeedVelocity / limits.MaxVelocity, ct).ConfigureAwait(false);
+            await session.OverrideAsync("controller.config.enable_overspeed_error", true, ct).ConfigureAwait(false);
             await session.OverrideAsync("controller.config.enable_vel_limit", true, ct).ConfigureAwait(false);
+            await session.WriteAsync("controller.input_torque", 0f, ct).ConfigureAwait(false);
             await session.OverrideAsync("motor.config.current_lim", limits.MaxCurrent, ct).ConfigureAwait(false);
             await session.OverrideAsync("config.watchdog_timeout", limits.WatchdogTimeout, ct).ConfigureAwait(false);
             await session.WriteAsync("controller.input_vel", 0f, ct).ConfigureAwait(false);
@@ -130,12 +163,25 @@ public sealed class JogSession : IAsyncDisposable
     /// <summary>Consigne de vitesse, en tours/s, bornée à <see cref="JogLimits.MaxVelocity"/>.</summary>
     public async Task SetVelocityAsync(float turnsPerSecond, CancellationToken ct = default)
     {
-        if (_ended)
+        if (_ended || _limits.Mode != JogMode.Velocity)
         {
             return;
         }
         float clamped = Math.Clamp(float.IsFinite(turnsPerSecond) ? turnsPerSecond : 0f, -_limits.MaxVelocity, _limits.MaxVelocity);
         await WriteAsync("controller.input_vel", clamped, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Consigne de couple, en Nm, bornée à <see cref="JogLimits.MaxTorque"/> ; sans effet hors mode couple.
+    /// </summary>
+    public async Task SetTorqueAsync(float newtonMetres, CancellationToken ct = default)
+    {
+        if (_ended || _limits.Mode != JogMode.Torque)
+        {
+            return;
+        }
+        float clamped = Math.Clamp(float.IsFinite(newtonMetres) ? newtonMetres : 0f, -_limits.MaxTorque, _limits.MaxTorque);
+        await WriteAsync("controller.input_torque", clamped, ct).ConfigureAwait(false);
     }
 
     /// <summary>Termine l'essai : consigne nulle, axe en IDLE, réglages d'origine restaurés.</summary>
@@ -198,7 +244,7 @@ public sealed class JogSession : IAsyncDisposable
         {
             return "l'axe a quitté la boucle fermée";
         }
-        if (Math.Abs(reading.Velocity) > _limits.FirmwareVelocityLimit)
+        if (Math.Abs(reading.Velocity) > _limits.OverspeedVelocity)
         {
             return string.Create(CultureInfo.InvariantCulture,
                 $"vitesse de {reading.Velocity:F2} tours/s au-delà de la limite de {_limits.MaxVelocity:F2} tours/s.");
@@ -229,6 +275,7 @@ public sealed class JogSession : IAsyncDisposable
         await TryAsync(() => _device.WriteAsync(_device.Schema.GetProperty(_prefix + "requested_state"),
             (byte)AxisState.Idle, RequestPriority.Emergency, CancellationToken.None)).ConfigureAwait(false);
         await TryAsync(() => WriteAsync("controller.input_vel", 0f, CancellationToken.None)).ConfigureAwait(false);
+        await TryAsync(() => WriteAsync("controller.input_torque", 0f, CancellationToken.None)).ConfigureAwait(false);
         for (int i = _saved.Count - 1; i >= 0; i--)
         {
             (PropertyNode property, object value) = _saved[i];

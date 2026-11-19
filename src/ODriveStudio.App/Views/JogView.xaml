@@ -5,13 +5,17 @@
         <StackPanel MaxWidth="900" HorizontalAlignment="Left">
             <Border Style="{StaticResource Card}">
                 <StackPanel>
-                    <TextBlock Text="Essai moteur (jog en vitesse)" Style="{StaticResource CardTitle}" />
+                    <TextBlock Text="Essai moteur (jog en vitesse ou en couple)" Style="{StaticResource CardTitle}" />
                     <TextBlock TextWrapping="Wrap" Margin="0,6,0,10" Foreground="{StaticResource MutedText}"
                                Text="Roue soulevée ou libre de tourner. Les limites ci-dessous ne valent que pendant l'essai : la carte retrouve ses réglages à la fin. Le watchdog de l'axe est armé pendant l'essai : si la liaison USB tombe, la carte arrête le moteur. Échap = arrêt d'urgence." />
                     <WrapPanel IsEnabled="{Binding IsStopped}">
                         <StackPanel Margin="0,0,20,0">
                             <TextBlock Text="Axe" Style="{StaticResource FieldLabel}" Margin="0" />
                             <ComboBox ItemsSource="{Binding Axes}" SelectedItem="{Binding Axis}" Width="70" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,20,0">
+                            <TextBlock Text="Commande en" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <ComboBox ItemsSource="{Binding Modes}" SelectedItem="{Binding Mode}" Width="100" />
                         </StackPanel>
                         <StackPanel Margin="0,0,20,0">
                             <TextBlock Text="Vitesse maximale (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
@@ -21,11 +25,22 @@
                             <TextBlock Text="Limite de courant (A)" Style="{StaticResource FieldLabel}" Margin="0" />
                             <TextBox Text="{Binding MaxCurrent, UpdateSourceTrigger=LostFocus}" Width="110" />
                         </StackPanel>
-                        <StackPanel>
+                        <StackPanel Margin="0,0,20,0" Visibility="{Binding IsVelocityMode, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Rampe (tours/s²)" Style="{StaticResource FieldLabel}" Margin="0" />
                             <TextBox Text="{Binding RampRate, UpdateSourceTrigger=LostFocus}" Width="110" />
                         </StackPanel>
+                        <StackPanel Margin="0,0,20,0" Visibility="{Binding IsTorqueMode, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Couple maximal (Nm)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding MaxTorque, UpdateSourceTrigger=LostFocus}" Width="110" />
+                        </StackPanel>
+                        <StackPanel Visibility="{Binding IsTorqueMode, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Rampe de couple (Nm/s)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding TorqueRampRate, UpdateSourceTrigger=LostFocus}" Width="110" />
+                        </StackPanel>
                     </WrapPanel>
+                    <TextBlock TextWrapping="Wrap" Margin="0,8,0,0" Foreground="{StaticResource Armed}"
+                               Visibility="{Binding IsTorqueMode, Converter={StaticResource BoolToVisibility}}"
+                               Text="En couple, une roue libre accélère jusqu'à la vitesse maximale ci-dessus, où la carte réduit le couple. Commencer par un couple faible." />
                     <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
                         <Button Content="Armer l'axe" Command="{Binding StartCommand}" FontWeight="SemiBold" Padding="18,8" />
                         <Button Content="Arrêter l'essai (IDLE)" Command="{Binding StopCommand}" Padding="18,8" />
@@ -42,9 +57,13 @@
                 <StackPanel>
                     <TextBlock Text="Commande" Style="{StaticResource CardTitle}" />
                     <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                        <StackPanel Margin="0,0,20,0">
+                        <StackPanel Margin="0,0,20,0" Visibility="{Binding IsVelocityMode, Converter={StaticResource BoolToVisibility}}">
                             <TextBlock Text="Vitesse des boutons (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
                             <TextBox Text="{Binding JogSpeed, UpdateSourceTrigger=LostFocus}" Width="110" HorizontalAlignment="Left" />
+                        </StackPanel>
+                        <StackPanel Margin="0,0,20,0" Visibility="{Binding IsTorqueMode, Converter={StaticResource BoolToVisibility}}">
+                            <TextBlock Text="Couple des boutons (Nm)" Style="{StaticResource FieldLabel}" Margin="0" />
+                            <TextBox Text="{Binding JogTorque, UpdateSourceTrigger=LostFocus}" Width="110" HorizontalAlignment="Left" />
                         </StackPanel>
                         <Button x:Name="Backward" Content="◀  Maintenir : sens −" Padding="24,14" FontSize="15"
                                 PreviewMouseLeftButtonDown="OnBackwardDown" PreviewMouseLeftButtonUp="OnJogUp"
@@ -53,17 +72,17 @@
                                 PreviewMouseLeftButtonDown="OnForwardDown" PreviewMouseLeftButtonUp="OnJogUp"
                                 LostMouseCapture="OnJogLost" />
                     </StackPanel>
-                    <TextBlock Text="Le moteur tourne tant que le bouton est maintenu et s'arrête au relâchement."
+                    <TextBlock Text="Le moteur est commandé tant que le bouton est maintenu ; au relâchement la consigne revient à zéro (en couple, la roue finit en roue libre)."
                                Foreground="{StaticResource MutedText}" Margin="0,6,0,14" />
 
-                    <TextBlock Text="Vitesse continue (tours/s)" Style="{StaticResource FieldLabel}" Margin="0" />
+                    <TextBlock Text="{Binding CommandUnit, StringFormat='Consigne continue ({0})'}" Style="{StaticResource FieldLabel}" Margin="0" />
                     <DockPanel Margin="0,4,0,0">
                         <Button DockPanel.Dock="Right" Content="Zéro" Command="{Binding ZeroCommand}" Margin="12,0,0,0" Padding="18,6" />
                         <Slider x:Name="Continuous" Minimum="-1" Maximum="1" Value="0" TickFrequency="0.25"
                                 TickPlacement="BottomRight" ValueChanged="OnContinuousChanged" VerticalAlignment="Center" />
                     </DockPanel>
                     <TextBlock Margin="0,6,0,0" FontFamily="Consolas" FontSize="15"
-                               Text="{Binding Command, StringFormat='Consigne : {0:F2} tours/s'}" />
+                               Text="{Binding CommandText}" />
                 </StackPanel>
             </Border>
 

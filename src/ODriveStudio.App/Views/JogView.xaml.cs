@@ -38,7 +38,7 @@ public partial class JogView : UserControl
     // Le curseur suit la consigne (remise à zéro au relâchement, à l'arrêt, à l'abandon) et la limite.
     private void OnViewModelChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(JogViewModel.Command) or nameof(JogViewModel.MaxVelocity))
+        if (e.PropertyName is nameof(JogViewModel.Command) or nameof(JogViewModel.CommandLimit))
         {
             SyncSlider();
         }
@@ -51,7 +51,7 @@ public partial class JogView : UserControl
             return;
         }
         _syncing = true;
-        double limit = Math.Max(0.1, Math.Abs(_viewModel.MaxVelocity));
+        double limit = Math.Max(0.1, _viewModel.CommandLimit);
         Continuous.Minimum = -limit;
         Continuous.Maximum = limit;
         Continuous.TickFrequency = limit / 4;
