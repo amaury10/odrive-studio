@@ -16,6 +16,14 @@ public sealed record JogLimits(float MaxVelocity = 2f, float MaxCurrent = 10f, f
 
     /// <summary>Délai du watchdog de l'axe pendant l'essai, en secondes.</summary>
     public float WatchdogTimeout { get; init; } = 1f;
+
+    /// <summary>
+    /// <c>vel_limit</c> écrit dans la carte pendant l'essai, en tours/s, et seuil d'abandon de la surveillance.
+    /// Plus large que <see cref="MaxVelocity"/> : le firmware coupe en OVERSPEED dès que l'estimation dépasse
+    /// <c>vel_limit_tolerance</c> (1,2) × <c>vel_limit</c> (controller.cpp:337), et l'estimation tirée de
+    /// capteurs Hall est bruitée. La consigne, elle, reste bornée à <see cref="MaxVelocity"/> par l'outil.
+    /// </summary>
+    public float FirmwareVelocityLimit => MaxVelocity * 1.5f + 0.5f;
 }
 
 /// <summary>Mesures relevées pendant l'essai.</summary>
@@ -91,7 +99,7 @@ public sealed class JogSession : IAsyncDisposable
             await session.OverrideAsync("controller.config.control_mode", (byte)ControlMode.VelocityControl, ct).ConfigureAwait(false);
             await session.OverrideAsync("controller.config.input_mode", (byte)InputMode.VelRamp, ct).ConfigureAwait(false);
             await session.OverrideAsync("controller.config.vel_ramp_rate", limits.RampRate, ct).ConfigureAwait(false);
-            await session.OverrideAsync("controller.config.vel_limit", limits.MaxVelocity, ct).ConfigureAwait(false);
+            await session.OverrideAsync("controller.config.vel_limit", limits.FirmwareVelocityLimit, ct).ConfigureAwait(false);
             await session.OverrideAsync("controller.config.enable_vel_limit", true, ct).ConfigureAwait(false);
             await session.OverrideAsync("motor.config.current_lim", limits.MaxCurrent, ct).ConfigureAwait(false);
             await session.OverrideAsync("config.watchdog_timeout", limits.WatchdogTimeout, ct).ConfigureAwait(false);
@@ -190,7 +198,7 @@ public sealed class JogSession : IAsyncDisposable
         {
             return "l'axe a quitté la boucle fermée";
         }
-        if (Math.Abs(reading.Velocity) > _limits.MaxVelocity * 1.5f + 0.5f)
+        if (Math.Abs(reading.Velocity) > _limits.FirmwareVelocityLimit)
         {
             return string.Create(CultureInfo.InvariantCulture,
                 $"vitesse de {reading.Velocity:F2} tours/s au-delà de la limite de {_limits.MaxVelocity:F2} tours/s.");

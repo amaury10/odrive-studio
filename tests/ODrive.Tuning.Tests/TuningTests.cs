@@ -533,7 +533,9 @@ public class JogSessionTests
 
         (await bench.Odrv.Axis0.CurrentState.GetAsync()).Should().Be(AxisState.ClosedLoopControl);
         (await bench.Odrv.Axis0.Controller.InputVel.GetAsync()).Should().Be(0f);
-        (await bench.Odrv.Axis0.Controller.Config.VelLimit.GetAsync()).Should().Be(1.5f);
+        // Relevé sur le banc : avec vel_limit = vitesse maximale, le firmware coupe en OVERSPEED dès 1,2 × la
+        // limite (controller.cpp:337), ce que le bruit des capteurs Hall atteint à la vitesse maximale.
+        (await bench.Odrv.Axis0.Controller.Config.VelLimit.GetAsync()).Should().Be(1.5f * 1.5f + 0.5f);
         (await bench.Odrv.Axis0.Motor.Config.CurrentLim.GetAsync()).Should().Be(6f);
         (await bench.Odrv.Axis0.Config.EnableWatchdog.GetAsync()).Should().BeTrue();
         await session.DisposeAsync();
