@@ -126,6 +126,9 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
     }
 }
 
+/// <summary>Un message de la barre d'état ; <paramref name="Details"/> porte la pile d'appels d'une erreur imprévue.</summary>
+public sealed record MessageLineViewModel(string Time, string Text, string Details);
+
 /// <summary>Fenêtre principale : cartes connectées, arrêt d'urgence, journal et barre d'état.</summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -203,6 +206,65 @@ public sealed partial class MainViewModel : ObservableObject
             : "ARRÊT D'URGENCE : ÉCHEC sur " + string.Join(", ",
                 failures.Select(f => $"{f.Device.SerialNumber:X} {f.Path}").Distinct())
               + " — couper l'alimentation.";
+    }
+
+    /// <summary>Messages de la barre d'état depuis le lancement, erreurs comprises (les plus récents en bas).</summary>
+    public ObservableCollection<MessageLineViewModel> Messages { get; } = [];
+
+    partial void OnStatusMessageChanged(string value) => AddMessage(value, null);
+
+    /// <summary>Erreur imprévue : affichée dans la barre d'état, gardée avec sa pile d'appels pour la copie.</summary>
+    public void ReportUnexpected(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+        string text = "Erreur inattendue : " + exception.Message;
+        _pendingDetails = exception.ToString();
+        if (StatusMessage == text)
+        {
+            // Même erreur deux fois de suite : la propriété ne change pas, la ligne doit quand même exister.
+            AddMessage(text, null);
+        }
+        else
+        {
+            StatusMessage = text;
+        }
+    }
+
+    private string? _pendingDetails;
+
+    private void AddMessage(string text, string? details)
+    {
+        details ??= _pendingDetails;
+        _pendingDetails = null;
+        if (text.Length == 0)
+        {
+            return;
+        }
+        var line = new MessageLineViewModel(DateTime.Now.ToString("HH:mm:ss", CultureInfo.InvariantCulture), text, details ?? "");
+        OnUi(() =>
+        {
+            Messages.Add(line);
+            while (Messages.Count > 1000)
+            {
+                Messages.RemoveAt(0);
+            }
+        });
+    }
+
+    /// <summary>Copie tous les messages (et le détail des erreurs) dans le presse-papiers.</summary>
+    [RelayCommand]
+    private void CopyMessages()
+    {
+        var text = new StringBuilder();
+        foreach (MessageLineViewModel line in Messages)
+        {
+            text.Append(line.Time).Append("  ").AppendLine(line.Text);
+            if (line.Details.Length > 0)
+            {
+                text.AppendLine(line.Details);
+            }
+        }
+        _dialogs.CopyText(text.ToString());
     }
 
     [RelayCommand]

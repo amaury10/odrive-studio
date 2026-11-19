@@ -13,6 +13,9 @@ public interface IUserDialogs
 
     /// <summary>Chemin du fichier à ouvrir, ou <c>null</c> si l'utilisateur annule.</summary>
     string? PickOpenFile(string title, string filter);
+
+    /// <summary>Place un texte dans le presse-papiers.</summary>
+    void CopyText(string text);
 }
 
 public sealed class WpfUserDialogs : IUserDialogs
@@ -31,6 +34,19 @@ public sealed class WpfUserDialogs : IUserDialogs
     {
         var dialog = new OpenFileDialog { Title = title, Filter = filter, CheckFileExists = true };
         return dialog.ShowDialog(Application.Current?.MainWindow) == true ? dialog.FileName : null;
+    });
+
+    public void CopyText(string text) => OnUi(() =>
+    {
+        try
+        {
+            Clipboard.SetDataObject(text, copy: true);
+        }
+        catch (System.Runtime.InteropServices.COMException)
+        {
+            // Presse-papiers tenu par une autre application : la copie est perdue, pas l'outil.
+        }
+        return true;
     });
 
     // Les bibliothèques posent leurs questions depuis le thread où leur lecture USB s'est terminée

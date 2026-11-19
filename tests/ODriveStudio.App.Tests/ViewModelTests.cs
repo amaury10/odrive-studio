@@ -39,6 +39,10 @@ internal sealed class FakeDialogs : IUserDialogs
     public string? PickSaveFile(string title, string defaultFileName, string filter) => SavePath;
 
     public string? PickOpenFile(string title, string filter) => OpenPath;
+
+    public string? Copied { get; private set; }
+
+    public void CopyText(string text) => Copied = text;
 }
 
 /// <summary>Une carte simulée connectée, avec les services dont les vues-modèles ont besoin.</summary>
@@ -407,6 +411,26 @@ public class MainViewModelTests
             PollingPeriod = TimeSpan.FromMilliseconds(10),
         };
         return (main, manager, board, journal, dialogs);
+    }
+
+    [Fact]
+    public async Task Status_messages_are_kept_and_copied_with_the_error_details()
+    {
+        var (main, manager, _, _, dialogs) = Create();
+        main.CopyMessagesCommand.CanExecute(null).Should().BeTrue();
+
+        main.StatusMessage = "Calibration refusée : Vbus trop bas.";
+        main.ReportUnexpected(new InvalidOperationException("autre thread"));
+
+        main.Messages.Select(m => m.Text).Should().ContainInOrder(
+            "Calibration refusée : Vbus trop bas.", "Erreur inattendue : autre thread");
+        main.StatusMessage.Should().Be("Erreur inattendue : autre thread");
+
+        main.CopyMessagesCommand.Execute(null);
+
+        dialogs.Copied.Should().Contain("Calibration refusée : Vbus trop bas.")
+            .And.Contain("System.InvalidOperationException: autre thread");
+        await manager.DisposeAsync();
     }
 
     [Fact]

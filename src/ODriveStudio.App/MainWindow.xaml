@@ -113,6 +113,23 @@
                                    Text="Toutes les écritures et tous les appels de fonction faits par l'outil pendant cette session." />
                         <Button DockPanel.Dock="Right" Content="Exporter en CSV…" Command="{Binding ExportJournalCommand}" Margin="0" />
                     </DockPanel>
+                    <!-- Messages et erreurs -->
+                    <DockPanel DockPanel.Dock="Bottom" Height="230" Margin="0,8,0,0">
+                        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="False">
+                            <TextBlock DockPanel.Dock="Left" VerticalAlignment="Center" Foreground="{StaticResource MutedText}"
+                                       Text="Messages et erreurs de la barre d'état depuis le lancement." />
+                            <Button DockPanel.Dock="Right" Content="Copier les messages" Command="{Binding CopyMessagesCommand}" Margin="0" />
+                        </DockPanel>
+                        <DataGrid ItemsSource="{Binding Messages}" AutoGenerateColumns="False" IsReadOnly="True"
+                                  HeadersVisibility="Column" GridLinesVisibility="Horizontal"
+                                  HorizontalGridLinesBrush="{StaticResource CardBorder}" RowHeaderWidth="0"
+                                  FontFamily="Consolas" FontSize="13" SelectionMode="Extended" ClipboardCopyMode="ExcludeHeader">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Heure" Binding="{Binding Time}" Width="80" />
+                                <DataGridTextColumn Header="Message" Binding="{Binding Text}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </DockPanel>
                     <DataGrid ItemsSource="{Binding Journal}" AutoGenerateColumns="False" IsReadOnly="True"
                               HeadersVisibility="Column" GridLinesVisibility="Horizontal"
                               HorizontalGridLinesBrush="{StaticResource CardBorder}" RowHeaderWidth="0"

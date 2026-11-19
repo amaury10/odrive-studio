@@ -51,7 +51,7 @@ public partial class App : Application
         // l'arrêt d'urgence doit rester disponible.
         DispatcherUnhandledException += (_, args) =>
         {
-            _main.StatusMessage = "Erreur inattendue : " + args.Exception.Message;
+            _main.ReportUnexpected(args.Exception);
             LogUnexpected(args.Exception);
             args.Handled = true;
         };
