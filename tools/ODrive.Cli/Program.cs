@@ -47,6 +47,7 @@ try
         "hall" => await HallAsync(),
         "get" => await GetAsync(),
         "calibrate" => await CalibrateAsync(),
+        "copy-axis" => await CopyAxisAsync(),
         "set" => await SetAsync(),
         "enter-dfu" => await EnterDfuAsync(),
         "dfu" => DfuInfo(),
@@ -82,6 +83,9 @@ int Help()
         odrive-cli set <chemin> <valeur> [--save]
                                              écrit une propriété (refusé hors IDLE) ; --save sauvegarde et redémarre
 
+        odrive-cli copy-axis <de> <vers> [--save]
+                                             copie les réglages d'un axe sur l'autre, sans les résultats de
+                                             calibration ni les broches ; --save sauvegarde et redémarre
         odrive-cli calibrate <motor|hall|offset|full> --yes [--axis n]
                                              lance une calibration : LE MOTEUR EST ALIMENTÉ ET PEUT TOURNER.
                                              Ctrl+C remet l'axe en IDLE.
@@ -584,6 +588,52 @@ async Task<int> SetAsync()
         await device.DisposeAsync();
         device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
         Console.WriteLine($"Après redémarrage : {property.Path} = {ConfigProfile.FormatValue(await device.ReadAsync(device.Schema.FindProperty(property.Path)!))}");
+        return 0;
+    }
+    finally
+    {
+        await device.DisposeAsync();
+    }
+}
+
+async Task<int> CopyAxisAsync()
+{
+    string[] words = [.. args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal))];
+    if (words.Length != 2 || !int.TryParse(words[0], out int from) || !int.TryParse(words[1], out int to))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli copy-axis <de> <vers> [--save]");
+        return 1;
+    }
+
+    ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    ulong serial = device.SerialNumber;
+    try
+    {
+        IReadOnlyList<AxisCopyChange> changes;
+        try
+        {
+            changes = await AxisConfigCopy.CopyAsync(device, from, to);
+        }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException)
+        {
+            Console.Error.WriteLine("Copie refusée : " + e.Message);
+            return 1;
+        }
+        foreach (AxisCopyChange change in changes)
+        {
+            Console.WriteLine($"  {change.Path} : {change.OldValue} → {change.NewValue}");
+        }
+        Console.WriteLine($"{changes.Count} valeur(s) modifiée(s) sur l'axe {to}.");
+        if (!args.Contains("--save"))
+        {
+            return 0;
+        }
+
+        bool saved = await device.SaveConfigurationAsync();
+        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        await device.DisposeAsync();
+        device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
+        await PrintAxisStatusAsync(device, to);
         return 0;
     }
     finally

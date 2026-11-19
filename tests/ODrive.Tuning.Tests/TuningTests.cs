@@ -484,6 +484,54 @@ public class ConfigProfileTests
     }
 }
 
+public class AxisConfigCopyTests
+{
+    [Fact]
+    public async Task Copies_the_settings_but_not_what_belongs_to_one_motor_or_one_axis()
+    {
+        Bench bench = await Bench.CreateAsync();
+        await HoverboardPreset.ApplyAsync(bench.Device, HoverboardPreset.Build(new HoverboardOptions { Axis = 0 }));
+        await bench.Odrv.Axis0.Controller.Config.VelLimit.SetAsync(7.5f);
+        await bench.Odrv.Axis0.Motor.Config.PhaseResistance.SetAsync(0.457f);
+        await bench.Odrv.Axis0.Motor.Config.PreCalibrated.SetAsync(true);
+        await bench.Odrv.Axis0.Encoder.Config.PhaseOffsetFloat.SetAsync(1.469f);
+
+        IReadOnlyList<AxisCopyChange> changes = await AxisConfigCopy.CopyAsync(bench.Device, 0, 1);
+
+        (await bench.Odrv.Axis1.Motor.Config.PolePairs.GetAsync()).Should().Be(15);
+        (await bench.Odrv.Axis1.Encoder.Config.Mode.GetAsync()).Should().Be(EncoderMode.Hall);
+        (await bench.Odrv.Axis1.Encoder.Config.Cpr.GetAsync()).Should().Be(90);
+        (await bench.Odrv.Axis1.Controller.Config.VelLimit.GetAsync()).Should().Be(7.5f);
+        // Mesures et repères propres au moteur 0 : l'axe 1 doit faire sa propre calibration.
+        (await bench.Odrv.Axis1.Motor.Config.PhaseResistance.GetAsync()).Should().NotBe(0.457f);
+        (await bench.Odrv.Axis1.Motor.Config.PreCalibrated.GetAsync()).Should().BeFalse();
+        (await bench.Odrv.Axis1.Encoder.Config.PhaseOffsetFloat.GetAsync()).Should().NotBe(1.469f);
+        // Propres à l'axe : identifiant CAN et broches.
+        (await bench.Odrv.Axis1.Config.Can.NodeId.GetAsync()).Should().Be(1u);
+        // Relevé sur le banc : copié, load_encoder_axis faisait réguler l'axe 1 sur le capteur de l'axe 0.
+        (await bench.Odrv.Axis1.Controller.Config.LoadEncoderAxis.GetAsync()).Should().Be(1);
+        changes.Select(c => c.Path).Should().NotContain(path => path.Contains("gpio_pin", StringComparison.Ordinal));
+        // Entrées Hall de l'axe d'arrivée (board.cpp:204-224).
+        (await bench.Device.ReadAsync<byte>(bench.Device.Schema.GetProperty("config.gpio12_mode"))).Should().Be((byte)GpioMode.Digital);
+        (await bench.Device.ReadAsync<byte>(bench.Device.Schema.GetProperty("config.gpio14_mode"))).Should().Be((byte)GpioMode.Digital);
+        changes.Should().Contain(c => c.Path == "axis1.motor.config.pole_pairs" && c.OldValue == "7" && c.NewValue == "15");
+    }
+
+    [Fact]
+    public async Task Nothing_is_copied_while_an_axis_is_active_or_onto_itself()
+    {
+        Bench bench = await Bench.CreateAsync();
+        await bench.CalibrateAsync();
+        await bench.Odrv.Axis0.RequestedState.SetAsync(AxisState.ClosedLoopControl);
+
+        Func<Task> active = () => AxisConfigCopy.CopyAsync(bench.Device, 0, 1);
+        Func<Task> same = () => AxisConfigCopy.CopyAsync(bench.Device, 1, 1);
+
+        await active.Should().ThrowAsync<InvalidOperationException>();
+        await same.Should().ThrowAsync<ArgumentException>();
+    }
+}
+
 public class JogSessionTests
 {
     private static async Task<(Bench Bench, JogSession Session)> StartAsync(JogLimits? limits = null)
