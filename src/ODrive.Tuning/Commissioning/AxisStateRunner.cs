@@ -91,7 +91,7 @@ public static class CalibrationChecks
         if (phaseResistance is < 0.05f or > 0.6f)
         {
             return string.Create(CultureInfo.InvariantCulture,
-                $"Résistance de phase inhabituelle pour une roue d'hoverboard : {phaseResistance:F3} Ω (attendu vers 0,18 Ω). Vérifier le câblage des trois phases.");
+                $"Résistance de phase inhabituelle pour une roue d'hoverboard : {phaseResistance:F3} Ω (attendu entre 0,15 et 0,5 Ω). Vérifier le câblage des trois phases.");
         }
         if (phaseInductance is < 0.0001f or > 0.001f)
         {

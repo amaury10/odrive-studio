@@ -49,8 +49,12 @@ public sealed record HoverboardOptions
     /// <summary>Limite de courant moteur, en ampères.</summary>
     public float CurrentLimit { get; init; } = 10f;
 
-    /// <summary>Courant de calibration, en ampères.</summary>
-    public float CalibrationCurrent { get; init; } = 10f;
+    /// <summary>
+    /// Courant de calibration, en ampères. 5 A et non les 10 A par défaut du firmware : la mesure échoue dès
+    /// que R × courant dépasse <c>resistance_calib_max_voltage</c> (4 V, motor.cpp:38), soit 0,4 Ω à 10 A,
+    /// alors qu'une roue d'hoverboard mesurée fait 0,46 Ω.
+    /// </summary>
+    public float CalibrationCurrent { get; init; } = 5f;
 
     /// <summary>Limite de vitesse, en tours/s.</summary>
     public float VelocityLimit { get; init; } = 10f;
@@ -126,14 +130,15 @@ public static class HoverboardPreset
             new(CommissioningStep.Motor, axis + "motor.config.motor_type", MotorType.HighCurrent, "Type de moteur"),
             new(CommissioningStep.Motor, axis + "motor.config.resistance_calib_max_voltage", 4f,
                 "Tension maximale de calibration", "V", "résistance de phase élevée"),
-            new(CommissioningStep.Motor, axis + "motor.config.requested_current_range", 25f,
-                "Plage de mesure de courant", "A", "sauvegarde + redémarrage nécessaires", NeedsReboot: true),
+            // motor.config.requested_current_range reste au défaut du firmware (60 A), contre l'avis du guide
+            // (25 A) : l'offset toléré des capteurs de courant vaut 10 % de la plage (motor.cpp:332 et :607) et
+            // une v3.6-56V non officielle le dépasse en plage 25 A → MOTOR_ERROR_UNKNOWN_CURRENT_MEASUREMENT.
             new(CommissioningStep.Motor, axis + "motor.config.current_control_bandwidth", 100f,
                 "Bande passante de la boucle de courant", "rad/s", "inductance élevée : le défaut de 1000 est trop haut"),
             new(CommissioningStep.Motor, axis + "motor.config.torque_constant", TorqueConstant(options.Kv),
                 "Constante de couple", "Nm/A", "8,27 / Kv"),
             new(CommissioningStep.Motor, axis + "motor.config.calibration_current", options.CalibrationCurrent,
-                "Courant de calibration", "A"),
+                "Courant de calibration", "A", "résistance mesurable jusqu'à 4 V / ce courant"),
 
             new(CommissioningStep.Encoder, axis + "encoder.config.mode", EncoderMode.Hall, "Type de capteur"),
             new(CommissioningStep.Encoder, axis + "encoder.config.cpr", cpr,

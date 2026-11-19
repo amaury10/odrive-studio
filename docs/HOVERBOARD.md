@@ -23,14 +23,25 @@ l'axe choisi. Hall A/B/C se branchent sur A/B/Z (`ref/ODrive/docs/encoders.rst:9
 | `motor.config.pole_pairs` | 15 | 30 aimants ; à vérifier : compter les aimants / 2 |
 | `motor.config.motor_type` | `HIGH_CURRENT` | valeur par défaut |
 | `motor.config.resistance_calib_max_voltage` | 4 V | R de phase élevée |
-| `motor.config.requested_current_range` | 25 A | sauvegarde + reboot nécessaires |
+| `motor.config.requested_current_range` | 60 A (défaut) | le guide dit 25 A ; voir « Relevés sur le banc » |
 | `motor.config.current_control_bandwidth` | 100 rad/s | inductance élevée ; le défaut de 1000 est trop haut |
 | `motor.config.torque_constant` | 8,27 / Kv | Kv typique 16 → 0,517 Nm/A ; à mesurer si possible |
 | `motor.config.current_lim` | 10–20 A | outil ; selon l'échauffement |
-| `motor.config.calibration_current` | 5–10 A | outil |
+| `motor.config.calibration_current` | 5 A | outil ; R mesurable jusqu'à 4 V / courant = 0,8 Ω |
 
 Contrôle de plausibilité après calibration (valeurs du guide) : `phase_resistance` ≈ 0,18 Ω,
 `phase_inductance` ≈ 0,34 mH.
+
+### Relevés sur le banc (v3.6-56V non officielle, firmware 0.5.6, batterie 6S)
+- Roue mesurée : `phase_resistance` = 0,457 Ω, `phase_inductance` = 0,673 mH, `phase_offset_float` = 1,469.
+  Environ le double des valeurs du guide ; non recoupé par une mesure indépendante.
+- `requested_current_range` = 25 A → `MOTOR_ERROR_UNKNOWN_CURRENT_MEASUREMENT` : l'offset de la phase A
+  (2,8 à 2,9 A) frôle le seuil `max_dc_calib` = 10 % de la plage (3,04 A ; `motor.cpp:332`, `:607`). En plage
+  60 A : offset 4,56 A pour un seuil de 6,08 A.
+- `calibration_current` = 10 A → `MOTOR_ERROR_PHASE_RESISTANCE_OUT_OF_RANGE` : 0,457 Ω × 10 A dépasse
+  `resistance_calib_max_voltage` = 4 V (`motor.cpp:38`). Attention : après un échec, `phase_resistance`
+  contient une valeur sans signification (`motor.cpp:438`).
+- `shadow_count` ne bouge pas tant que `hall_polarity_calibrated` est faux (`encoder.cpp:669`).
 
 ## Encodeur (Hall)
 | Paramètre | Valeur |

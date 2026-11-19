@@ -118,8 +118,20 @@ public class HoverboardPresetTests
 
         settings.Where(s => s.NeedsReboot).Select(s => s.Path).Should().Contain(
         [
-            "config.enable_brake_resistor", "config.gpio9_mode", "axis0.motor.config.requested_current_range",
+            "config.enable_brake_resistor", "config.gpio9_mode",
         ]);
+    }
+
+    // Relevé sur une v3.6-56V non officielle : en plage 25 A l'offset des capteurs de courant frôle le seuil du
+    // firmware (UNKNOWN_CURRENT_MEASUREMENT), et à 10 A une roue de 0,46 Ω dépasse les 4 V de calibration
+    // (PHASE_RESISTANCE_OUT_OF_RANGE).
+    [Fact]
+    public void Preset_keeps_the_default_current_range_and_calibrates_at_5_amps()
+    {
+        IReadOnlyList<CommissioningSetting> settings = HoverboardPreset.Build(new HoverboardOptions());
+
+        settings.Should().NotContain(s => s.Path.EndsWith("requested_current_range", StringComparison.Ordinal));
+        settings.Single(s => s.Path == "axis0.motor.config.calibration_current").Value.Should().Be(5f);
     }
 
     [Fact]

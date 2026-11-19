@@ -46,6 +46,7 @@ try
         "commission" => await CommissionAsync(),
         "hall" => await HallAsync(),
         "get" => await GetAsync(),
+        "calibrate" => await CalibrateAsync(),
         "set" => await SetAsync(),
         "enter-dfu" => await EnterDfuAsync(),
         "dfu" => DfuInfo(),
@@ -80,6 +81,10 @@ int Help()
         odrive-cli get <chemin> [<chemin>…]    lit des propriétés
         odrive-cli set <chemin> <valeur> [--save]
                                              écrit une propriété (refusé hors IDLE) ; --save sauvegarde et redémarre
+
+        odrive-cli calibrate <motor|hall|offset|full> --yes [--axis n]
+                                             lance une calibration : LE MOTEUR EST ALIMENTÉ ET PEUT TOURNER.
+                                             Ctrl+C remet l'axe en IDLE.
 
         Firmware (bootloader DFU du STM32) :
         odrive-cli enter-dfu                 redémarre la carte dans son bootloader
@@ -587,6 +592,68 @@ async Task<int> SetAsync()
     }
 }
 
+// Calibration d'un axe, par le même chemin que l'assistant (SafetyGuard puis AxisStateRunner). --yes tient
+// lieu de confirmation « roues soulevées » ; Ctrl+C annule et remet l'axe en IDLE.
+async Task<int> CalibrateAsync()
+{
+    string kind = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal)) ?? "";
+    (AxisState state, double timeout) = kind switch
+    {
+        "motor" => (AxisState.MotorCalibration, 20d),
+        "hall" => (AxisState.EncoderHallPolarityCalibration, 30d),
+        "offset" => (AxisState.EncoderOffsetCalibration, 40d),
+        "full" => (AxisState.FullCalibrationSequence, 90d),
+        _ => (AxisState.Undefined, 0d),
+    };
+    if (state == AxisState.Undefined || !args.Contains("--yes"))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli calibrate <motor|hall|offset|full> --yes [--axis n]");
+        Console.Error.WriteLine("Le moteur est alimenté et peut tourner : roue libre ou bloquée mécaniquement, jamais posée.");
+        return 1;
+    }
+
+    int axis = IntOption("--axis", 0);
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    using var cancel = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        cancel.Cancel();
+    };
+
+    AxisState last = AxisState.Undefined;
+    var progress = new InlineStateProgress(now =>
+    {
+        if (now != last)
+        {
+            last = now;
+            Console.WriteLine($"  état : {now}");
+        }
+    });
+    try
+    {
+        AxisRunResult result = await AxisStateRunner.RunAsync(device, axis, state, TimeSpan.FromSeconds(timeout),
+            new SafetyGuard(), _ => true, progress, null, cancel.Token);
+        Console.WriteLine(result.Message);
+        foreach (string path in new[]
+        {
+            "vbus_voltage", $"axis{axis}.motor.is_calibrated", $"axis{axis}.motor.config.phase_resistance",
+            $"axis{axis}.motor.config.phase_inductance", $"axis{axis}.encoder.config.hall_polarity_calibrated",
+            $"axis{axis}.encoder.config.hall_polarity", $"axis{axis}.encoder.is_ready",
+            $"axis{axis}.encoder.config.phase_offset_float", $"axis{axis}.encoder.shadow_count",
+        })
+        {
+            Console.WriteLine($"  {path} = {ConfigProfile.FormatValue(await device.ReadAsync(device.Schema.FindProperty(path)!))}");
+        }
+        return result.Success ? 0 : 2;
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("Annulé : l'axe a été remis en IDLE.");
+        return 1;
+    }
+}
+
 // Ouvre la première carte (ou celle du numéro de série demandé), en attendant sa ré-énumération au besoin.
 async Task<ODriveDevice> ConnectAsync(TimeSpan wait, ulong? serialNumber = null)
 {
@@ -681,6 +748,11 @@ bool ReportReferenceJson(ODriveDevice device)
 internal sealed class InlineProgress(Action<int> report) : IProgress<int>
 {
     public void Report(int value) => report(value);
+}
+
+internal sealed class InlineStateProgress(Action<AxisState> report) : IProgress<AxisState>
+{
+    public void Report(AxisState value) => report(value);
 }
 
 internal sealed class DfuConsoleProgress : IProgress<DfuProgress>
