@@ -111,6 +111,30 @@ public class CommissioningViewModelTests
             System.Globalization.CultureInfo.InvariantCulture).Should().BeApproximately(8.27f / 8, 1e-4f);
     }
 
+    // Relevé sur le banc : batterie, pas de résistance de freinage, dc_max_negative_current au défaut
+    // (−0,01 A) → ODRIVE_ERROR_DC_BUS_OVER_REGEN_CURRENT trois secondes après l'armement.
+    [Fact]
+    public async Task Without_a_brake_resistor_the_supply_must_accept_some_regen_current()
+    {
+        await using MotorBench bench = await MotorBench.CreateAsync();
+        var wizard = new CommissioningViewModel(bench.Session);
+
+        wizard.BrakeResistorConnected.Should().BeFalse();
+        wizard.SupplyWarning.Should().Contain("DC_BUS_OVER_REGEN_CURRENT");
+
+        wizard.RegenCurrent = 5;
+        wizard.ProposeCommand.Execute(null);
+
+        wizard.SupplyWarning.Should().BeEmpty();
+        wizard.Settings.Single(row => row.Path == "config.dc_max_negative_current").EditText.Should().Be("-5");
+
+        wizard.RegenCurrent = 0;
+        wizard.BrakeResistorConnected = true;
+        wizard.ProposeCommand.Execute(null);
+
+        wizard.SupplyWarning.Should().BeEmpty();
+    }
+
     [Fact]
     public async Task Invalid_motor_choices_are_reported_and_keep_the_previous_proposal()
     {

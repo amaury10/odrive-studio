@@ -20,7 +20,7 @@
                             </Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
-                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
+                                <RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition />
                             </Grid.RowDefinitions>
                             <TextBlock Grid.Row="0" Text="Axe" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
                             <ComboBox Grid.Row="0" Grid.Column="1" ItemsSource="{Binding Axes}" SelectedItem="{Binding Axis}" Margin="0,2" />
@@ -32,16 +32,19 @@
                             <CheckBox Grid.Row="3" Grid.Column="1" IsChecked="{Binding BrakeResistorConnected}" VerticalAlignment="Center" />
                             <TextBlock Grid.Row="4" Text="Résistance de freinage (Ω)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
                             <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding BrakeResistance, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
-                            <TextBlock Grid.Row="5" Text="Limite de courant (A)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding CurrentLimit, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
-                            <TextBlock Grid.Row="6" Text="Limite de vitesse (tours/s)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding VelocityLimit, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
-                            <TextBlock Grid.Row="7" Text="Rampe de vitesse (tours/s²)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
-                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VelocityRampRate, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
-                            <TextBlock Grid.Row="8" Text="Watchdog (contrôleur CAN)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
-                            <CheckBox Grid.Row="8" Grid.Column="1" IsChecked="{Binding EnableWatchdog}" VerticalAlignment="Center" />
+                            <TextBlock Grid.Row="5" Text="Recharge acceptée par l'alimentation (A)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding RegenCurrent, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
+                            <TextBlock Grid.Row="6" Text="Limite de courant (A)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="6" Grid.Column="1" Text="{Binding CurrentLimit, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
+                            <TextBlock Grid.Row="7" Text="Limite de vitesse (tours/s)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="7" Grid.Column="1" Text="{Binding VelocityLimit, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
+                            <TextBlock Grid.Row="8" Text="Rampe de vitesse (tours/s²)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                            <TextBox Grid.Row="8" Grid.Column="1" Text="{Binding VelocityRampRate, UpdateSourceTrigger=LostFocus}" Margin="0,2" />
+                            <TextBlock Grid.Row="9" Text="Watchdog (contrôleur CAN)" Style="{StaticResource FieldLabel}" VerticalAlignment="Center" />
+                            <CheckBox Grid.Row="9" Grid.Column="1" IsChecked="{Binding EnableWatchdog}" VerticalAlignment="Center" />
                         </Grid>
                         <Button Content="Proposer les valeurs" Command="{Binding ProposeCommand}" HorizontalAlignment="Left" Margin="0,10,0,0" />
+                        <TextBlock Text="{Binding SupplyWarning}" Foreground="{StaticResource Armed}" TextWrapping="Wrap" Margin="0,6,0,0" />
                         <TextBlock Text="{Binding OptionsMessage}" Foreground="{StaticResource Danger}" TextWrapping="Wrap" Margin="0,6,0,0" />
                     </StackPanel>
                 </Border>

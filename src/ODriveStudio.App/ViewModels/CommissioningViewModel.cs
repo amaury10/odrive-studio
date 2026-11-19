@@ -144,6 +144,15 @@ public sealed partial class CommissioningViewModel : ObservableObject, IDisposab
     /// <summary>Résistance de freinage, en ohms.</summary>
     [ObservableProperty] private float _brakeResistance = 2f;
 
+    /// <summary>
+    /// Courant que l'alimentation accepte en retour au freinage, en ampères (positif ; 0 pour une alimentation
+    /// de laboratoire). Devient <c>config.dc_max_negative_current</c>.
+    /// </summary>
+    [ObservableProperty] private float _regenCurrent;
+
+    /// <summary>Avertissement sur le freinage, vide si la configuration tient debout.</summary>
+    [ObservableProperty] private string _supplyWarning = "";
+
     /// <summary>Limite de courant moteur, en ampères.</summary>
     [ObservableProperty] private float _currentLimit = 10f;
 
@@ -181,6 +190,8 @@ public sealed partial class CommissioningViewModel : ObservableObject, IDisposab
                 PolePairs = PolePairs,
                 BrakeResistorConnected = BrakeResistorConnected,
                 BrakeResistance = BrakeResistance,
+                // Jamais plus près de zéro que le défaut du firmware (odrive_main.h:111).
+                DcMaxNegativeCurrent = -Math.Max(Math.Abs(RegenCurrent), 0.01f),
                 CurrentLimit = CurrentLimit,
                 VelocityLimit = VelocityLimit,
                 VelocityRampRate = VelocityRampRate,
@@ -194,6 +205,13 @@ public sealed partial class CommissioningViewModel : ObservableObject, IDisposab
         }
 
         OptionsMessage = "";
+        // low_level.cpp:374 : le moindre courant renvoyé vers l'alimentation au-delà de dc_max_negative_current
+        // désarme les deux axes. Sans résistance de freinage, il faut donc que l'alimentation en accepte.
+        SupplyWarning = BrakeResistorConnected || Math.Abs(RegenCurrent) >= 0.5f
+            ? ""
+            : "Sans résistance de freinage, l'axe tombera en DC_BUS_OVER_REGEN_CURRENT au premier freinage. "
+              + "Sur batterie : indiquer le courant de recharge qu'elle accepte. Sur alimentation de laboratoire "
+              + "(aucune recharge possible) : brancher une résistance de freinage.";
         Settings.Clear();
         // Dans l'ordre des étapes de l'assistant (tri stable : l'ordre du préréglage est gardé dans une étape).
         foreach (CommissioningSetting setting in settings.OrderBy(s => s.Step))
