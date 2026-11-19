@@ -327,6 +327,44 @@ public class CommissioningViewModelTests
     }
 
     [Fact]
+    public async Task Copy_to_the_other_axis_asks_first_then_lists_what_changed()
+    {
+        await using MotorBench bench = await MotorBench.CreateAsync();
+        var wizard = new CommissioningViewModel(bench.Session);
+        await wizard.ApplyCommand.ExecuteAsync(null);
+        wizard.RebootNeeded = false;
+
+        bench.Dialogs.Answer = false;
+        await wizard.CopyToOtherAxisCommand.ExecuteAsync(null);
+        (await bench.Odrv.Axis1.Motor.Config.PolePairs.GetAsync()).Should().Be(7);
+
+        bench.Dialogs.Answer = true;
+        await wizard.CopyToOtherAxisCommand.ExecuteAsync(null);
+
+        bench.Dialogs.Questions.Last().Should().Contain("axe 0").And.Contain("axe 1");
+        (await bench.Odrv.Axis1.Motor.Config.PolePairs.GetAsync()).Should().Be(15);
+        (await bench.Odrv.Axis1.Config.Can.NodeId.GetAsync()).Should().Be(1u);
+        wizard.Log.Should().Contain(line => line.Contains("axis1.motor.config.pole_pairs") && line.Contains("15"));
+        wizard.Log.Last().Should().Contain("calibr");
+        // Les entrées Hall de l'autre axe ne prennent effet qu'après sauvegarde et redémarrage.
+        wizard.RebootNeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Copy_to_the_other_axis_is_refused_while_an_axis_is_active()
+    {
+        await using MotorBench bench = await MotorBench.CreateAsync();
+        await bench.CalibratedAsync();
+        await bench.Odrv.Axis0.RequestedState.SetAsync(AxisState.ClosedLoopControl);
+        var wizard = new CommissioningViewModel(bench.Session);
+
+        await wizard.CopyToOtherAxisCommand.ExecuteAsync(null);
+
+        wizard.Log.Last().Should().Contain("refusée");
+        (await bench.Odrv.Axis1.Motor.Config.PolePairs.GetAsync()).Should().Be(7);
+    }
+
+    [Fact]
     public async Task Save_asks_for_confirmation()
     {
         await using MotorBench bench = await MotorBench.CreateAsync();

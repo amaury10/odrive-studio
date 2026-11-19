@@ -76,6 +76,7 @@
                         <Button Content="Écrire dans la carte" Command="{Binding ApplyCommand}" Margin="0,0,8,6" />
                         <Button Content="Sauvegarder et redémarrer…" Command="{Binding SaveAndRebootCommand}" Margin="0,0,8,6" />
                         <Button Content="Exporter le profil…" Command="{Binding ExportProfileCommand}" Margin="0,0,8,6" />
+                        <Button Content="Copier vers l'autre axe…" Command="{Binding CopyToOtherAxisCommand}" Margin="0,0,8,6" />
                     </WrapPanel>
                     <TextBlock Text="Des réglages écrits ne prennent effet qu'après « Sauvegarder et redémarrer »."
                                Foreground="{StaticResource Armed}" FontWeight="SemiBold" Margin="0,0,0,6"

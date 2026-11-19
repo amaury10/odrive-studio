@@ -171,7 +171,7 @@ public sealed partial class CommissioningViewModel : ObservableObject, IDisposab
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCalibrationCommand), nameof(CancelCalibrationCommand), nameof(ApplyCommand),
-        nameof(SaveAndRebootCommand), nameof(MarkPreCalibratedCommand))]
+        nameof(SaveAndRebootCommand), nameof(MarkPreCalibratedCommand), nameof(CopyToOtherAxisCommand))]
     private bool _isCalibrating;
 
     [ObservableProperty] private string _calibrationState = "";
@@ -394,6 +394,41 @@ public sealed partial class CommissioningViewModel : ObservableObject, IDisposab
             Say("Calibration mémorisée" + (StartupClosedLoop ? ", démarrage automatique en boucle fermée activé" : "")
                 + ". Sauvegarder dans la carte pour la conserver.");
             await RefreshAsync();
+        });
+    }
+
+    /// <summary>
+    /// Copie les réglages de l'axe choisi sur l'autre axe (deux moteurs identiques), sans les résultats de
+    /// calibration ni ce qui est propre à un axe (<see cref="AxisConfigCopy"/>).
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(NotCalibrating))]
+    private async Task CopyToOtherAxisAsync()
+    {
+        int from = Axis, to = 1 - Axis;
+        await _session.RunAsync("Copie vers l'autre axe", async () =>
+        {
+            if (!await IdleAsync("Copie vers l'autre axe")
+                || !_session.Dialogs.Confirm("Copier vers l'autre axe",
+                    $"Les réglages de l'axe {from} vont remplacer ceux de l'axe {to} (moteur, capteur, régulation, limites).\n\n"
+                    + $"Les résultats de calibration ne sont pas copiés : l'axe {to} devra faire sa propre calibration.\n\nContinuer ?"))
+            {
+                return;
+            }
+
+            IReadOnlyList<AxisCopyChange> changes = await AxisConfigCopy.CopyAsync(_session.Device, from, to);
+            foreach (AxisCopyChange change in changes)
+            {
+                Log.Add($"          {change.Path} : {change.OldValue} → {change.NewValue}");
+            }
+            if (changes.Count > 0)
+            {
+                _savedSinceLastWrite = false;
+                // Les entrées Hall (config.gpioN_mode) ne prennent effet qu'au redémarrage.
+                RebootNeeded |= changes.Any(change => change.Path.StartsWith("config.gpio", StringComparison.Ordinal));
+            }
+            Say(changes.Count == 0
+                ? $"L'axe {to} a déjà les réglages de l'axe {from}."
+                : $"{changes.Count} valeur(s) copiée(s) de l'axe {from} vers l'axe {to}. Sauvegarder et redémarrer, puis calibrer l'axe {to}.");
         });
     }
 
