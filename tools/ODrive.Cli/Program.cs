@@ -8,6 +8,7 @@ using ODrive.Protocol.Simulation;
 using ODrive.Protocol.Transport;
 using ODrive.Protocol.Transport.WinUsb;
 using ODrive.Tuning.Commissioning;
+using ODrive.Tuning.Profiles;
 
 // Outil console de la phase 1 : énumération, dump et contrôle d'acceptation du protocole natif.
 //   odrive-cli list
@@ -44,6 +45,8 @@ try
         "check" => await CheckAsync(),
         "commission" => await CommissionAsync(),
         "hall" => await HallAsync(),
+        "get" => await GetAsync(),
+        "set" => await SetAsync(),
         "enter-dfu" => await EnterDfuAsync(),
         "dfu" => DfuInfo(),
         "backup" => Backup(),
@@ -73,6 +76,10 @@ int Help()
                                              courant dans le moteur (pas de calibration)
         odrive-cli hall [--axis n] [--seconds s] [--sim]
                                              affiche les capteurs Hall pendant qu'on tourne la roue à la main
+
+        odrive-cli get <chemin> [<chemin>…]    lit des propriétés
+        odrive-cli set <chemin> <valeur> [--save]
+                                             écrit une propriété (refusé hors IDLE) ; --save sauvegarde et redémarre
 
         Firmware (bootloader DFU du STM32) :
         odrive-cli enter-dfu                 redémarre la carte dans son bootloader
@@ -517,6 +524,67 @@ async Task<int> HallAsync()
         + string.Join(", ", seen.Select(pair => $"{pair.Key} ({pair.Value} lectures)")));
     Console.WriteLine($"  shadow_count final = {await device.ReadAsync(count)}, encoder.error = {await device.ReadAsync(error)}");
     return 0;
+}
+
+async Task<int> GetAsync()
+{
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    foreach (string path in args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal)))
+    {
+        Console.WriteLine(device.Schema.FindProperty(path) is { } property
+            ? $"{path} = {ConfigProfile.FormatValue(await device.ReadAsync(property))}"
+            : $"{path} : propriété absente de cette carte");
+    }
+    return 0;
+}
+
+// Écriture d'un réglage. Refusée si un axe n'est pas en IDLE, et pour requested_state : la console ne met
+// jamais un moteur en mouvement.
+async Task<int> SetAsync()
+{
+    string[] words = [.. args.Skip(1).Where(a => !a.StartsWith("--", StringComparison.Ordinal))];
+    if (words.Length != 2)
+    {
+        Console.Error.WriteLine("Usage : odrive-cli set <chemin> <valeur> [--save]");
+        return 1;
+    }
+
+    ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    ulong serial = device.SerialNumber;
+    try
+    {
+        if (device.Schema.FindProperty(words[0]) is not { } property)
+        {
+            Console.Error.WriteLine($"{words[0]} : propriété absente de cette carte.");
+            return 1;
+        }
+        object value = ConfigProfile.ParseValue(property.Type, words[1]);
+        SafetyDecision decision = await SafetyGuard.AuthorizeConfigurationChangeAsync(device);
+        if (!decision.IsAllowed || SafetyGuard.IsMotionRequest(property.Path, value))
+        {
+            Console.Error.WriteLine("Écriture refusée : " + (decision.Reason ?? "elle mettrait un moteur en mouvement."));
+            return 1;
+        }
+
+        object before = await device.ReadAsync(property);
+        await device.WriteAsync(property, value);
+        Console.WriteLine($"{property.Path} : {ConfigProfile.FormatValue(before)} → {ConfigProfile.FormatValue(await device.ReadAsync(property))}");
+        if (!args.Contains("--save"))
+        {
+            return 0;
+        }
+
+        bool saved = await device.SaveConfigurationAsync();
+        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        await device.DisposeAsync();
+        device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
+        Console.WriteLine($"Après redémarrage : {property.Path} = {ConfigProfile.FormatValue(await device.ReadAsync(device.Schema.FindProperty(property.Path)!))}");
+        return 0;
+    }
+    finally
+    {
+        await device.DisposeAsync();
+    }
 }
 
 // Ouvre la première carte (ou celle du numéro de série demandé), en attendant sa ré-énumération au besoin.
