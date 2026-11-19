@@ -17,19 +17,25 @@ public interface IUserDialogs
 
 public sealed class WpfUserDialogs : IUserDialogs
 {
-    public bool Confirm(string title, string message) =>
+    public bool Confirm(string title, string message) => OnUi(() =>
         MessageBox.Show(Application.Current?.MainWindow!, message, title, MessageBoxButton.YesNo,
-            MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes;
+            MessageBoxImage.Warning, MessageBoxResult.No) == MessageBoxResult.Yes);
 
-    public string? PickSaveFile(string title, string defaultFileName, string filter)
+    public string? PickSaveFile(string title, string defaultFileName, string filter) => OnUi(() =>
     {
         var dialog = new SaveFileDialog { Title = title, FileName = defaultFileName, Filter = filter };
         return dialog.ShowDialog(Application.Current?.MainWindow) == true ? dialog.FileName : null;
-    }
+    });
 
-    public string? PickOpenFile(string title, string filter)
+    public string? PickOpenFile(string title, string filter) => OnUi(() =>
     {
         var dialog = new OpenFileDialog { Title = title, Filter = filter, CheckFileExists = true };
         return dialog.ShowDialog(Application.Current?.MainWindow) == true ? dialog.FileName : null;
-    }
+    });
+
+    // Les bibliothèques posent leurs questions depuis le thread où leur lecture USB s'est terminée
+    // (ConfigureAwait(false), par exemple SafetyGuard.AuthorizeMotionAsync) : sur une vraie carte ce n'est pas
+    // le thread de l'interface, et une fenêtre ne s'ouvre que depuis lui.
+    private static T OnUi<T>(Func<T> show) =>
+        Application.Current?.Dispatcher is { } dispatcher && !dispatcher.CheckAccess() ? dispatcher.Invoke(show) : show();
 }

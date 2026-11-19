@@ -52,6 +52,7 @@ public partial class App : Application
         DispatcherUnhandledException += (_, args) =>
         {
             _main.StatusMessage = "Erreur inattendue : " + args.Exception.Message;
+            LogUnexpected(args.Exception);
             args.Handled = true;
         };
 
@@ -102,6 +103,23 @@ public partial class App : Application
             normal.IsPresent = true;
         };
         return dfu;
+    }
+
+    /// <summary>Fichier où sont consignées les erreurs imprévues, avec leur pile d'appels.</summary>
+    public static string ErrorLogPath { get; } = System.IO.Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ODriveStudio", "erreurs.log");
+
+    private static void LogUnexpected(Exception exception)
+    {
+        try
+        {
+            System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(ErrorLogPath)!);
+            System.IO.File.AppendAllText(ErrorLogPath, $"{DateTime.Now:O}{Environment.NewLine}{exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (Exception e) when (e is System.IO.IOException or UnauthorizedAccessException)
+        {
+            // Le journal d'erreurs ne doit jamais faire tomber l'outil.
+        }
     }
 
     protected override void OnExit(ExitEventArgs e)
