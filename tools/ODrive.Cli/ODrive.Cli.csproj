@@ -9,5 +9,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/ODrive.Model/ODrive.Model.csproj" />
+    <ProjectReference Include="../../src/ODrive.Tuning/ODrive.Tuning.csproj" />
   </ItemGroup>
 </Project>

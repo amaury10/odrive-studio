@@ -7,6 +7,7 @@ using ODrive.Protocol.Dfu;
 using ODrive.Protocol.Simulation;
 using ODrive.Protocol.Transport;
 using ODrive.Protocol.Transport.WinUsb;
+using ODrive.Tuning.Commissioning;
 
 // Outil console de la phase 1 : énumération, dump et contrôle d'acceptation du protocole natif.
 //   odrive-cli list
@@ -41,6 +42,8 @@ try
         "fix-usb" => FixUsb(),
         "dump" => await DumpAsync(),
         "check" => await CheckAsync(),
+        "commission" => await CommissionAsync(),
+        "hall" => await HallAsync(),
         "enter-dfu" => await EnterDfuAsync(),
         "dfu" => DfuInfo(),
         "backup" => Backup(),
@@ -65,6 +68,11 @@ int Help()
         odrive-cli fix-usb                   installe le pilote WinUSB et le GUID d'interface manquants (administrateur)
         odrive-cli dump  [--sim] [--out f]   écrit le JSON d'endpoints et toutes les valeurs de la carte
         odrive-cli check [--sim]             contrôle d'acceptation de la phase 1 (lecture, écriture, fonction, reboot)
+        odrive-cli commission [--axis n] [--brake] [--sim]
+                                             écrit le préréglage hoverboard, sauvegarde et redémarre ; aucun
+                                             courant dans le moteur (pas de calibration)
+        odrive-cli hall [--axis n] [--seconds s] [--sim]
+                                             affiche les capteurs Hall pendant qu'on tourne la roue à la main
 
         Firmware (bootloader DFU du STM32) :
         odrive-cli enter-dfu                 redémarre la carte dans son bootloader
@@ -373,6 +381,142 @@ async Task<int> CheckAsync()
             throw new ODriveProtocolException("Étape en échec : " + name);
         }
     }
+}
+
+int IntOption(string name, int fallback)
+{
+    int index = Array.IndexOf(args, name);
+    return index >= 0 && index + 1 < args.Length
+        && int.TryParse(args[index + 1], NumberStyles.Integer, CultureInfo.InvariantCulture, out int value)
+        ? value
+        : fallback;
+}
+
+// Écrit le préréglage hoverboard, sauvegarde et redémarre. Ne demande aucun état d'axe : le moteur ne reçoit
+// aucun courant.
+async Task<int> CommissionAsync()
+{
+    var options = new HoverboardOptions { Axis = IntOption("--axis", 0), BrakeResistorConnected = args.Contains("--brake") };
+    IReadOnlyList<CommissioningSetting> settings = HoverboardPreset.Build(options);
+
+    ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    ulong serial = device.SerialNumber;
+    try
+    {
+        PrintIdentity(device);
+        foreach (int axis in new[] { 0, 1 })
+        {
+            object state = await device.ReadAsync(device.Schema.FindProperty($"axis{axis}.current_state")!);
+            if (Convert.ToInt32(state, CultureInfo.InvariantCulture) != (int)AxisState.Idle)
+            {
+                Console.Error.WriteLine($"axis{axis} n'est pas en IDLE : rien n'a été écrit.");
+                return 1;
+            }
+        }
+
+        int changed = 0;
+        foreach (CommissioningSetting setting in settings)
+        {
+            if (device.Schema.FindProperty(setting.Path) is not { } property)
+            {
+                continue;
+            }
+            object before = await device.ReadAsync(property);
+            object wanted = HoverboardPreset.ToEndpointValue(property.Type, setting.Value);
+            if (!Equals(before, wanted))
+            {
+                changed++;
+                Console.WriteLine($"  {setting.Path} : {before} → {wanted} {setting.Unit}");
+            }
+        }
+
+        IReadOnlyList<CommissioningFailure> failures = await HoverboardPreset.ApplyAsync(device, settings);
+        foreach (CommissioningFailure failure in failures)
+        {
+            Console.WriteLine($"  ÉCHEC {failure.Path} : {failure.Message}");
+        }
+        Console.WriteLine($"{changed} valeur(s) modifiée(s) sur {settings.Count}, {failures.Count} échec(s).");
+        if (failures.Count > 0)
+        {
+            return 2;
+        }
+
+        bool saved = await device.SaveConfigurationAsync();
+        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        await device.DisposeAsync();
+
+        device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
+        int wrong = 0;
+        foreach (CommissioningSetting setting in settings)
+        {
+            if (device.Schema.FindProperty(setting.Path) is not { } property)
+            {
+                continue;
+            }
+            object after = await device.ReadAsync(property);
+            object wanted = HoverboardPreset.ToEndpointValue(property.Type, setting.Value);
+            if (!Equals(after, wanted))
+            {
+                wrong++;
+                Console.WriteLine($"  NON CONSERVÉ {setting.Path} : {after} au lieu de {wanted}");
+            }
+        }
+        Console.WriteLine($"Après redémarrage : {settings.Count - wrong}/{settings.Count} valeurs relues conformes.");
+        await PrintAxisStatusAsync(device, options.Axis);
+        return wrong == 0 ? 0 : 2;
+    }
+    finally
+    {
+        await device.DisposeAsync();
+    }
+}
+
+async Task PrintAxisStatusAsync(ODriveDevice device, int axis)
+{
+    foreach (string path in new[]
+    {
+        "error", "vbus_voltage", $"axis{axis}.current_state", $"axis{axis}.error", $"axis{axis}.motor.error",
+        $"axis{axis}.encoder.error", $"axis{axis}.controller.error", $"axis{axis}.motor.is_armed",
+        $"axis{axis}.encoder.hall_state", $"axis{axis}.encoder.shadow_count",
+    })
+    {
+        Console.WriteLine($"  {path} = {await device.ReadAsync(device.Schema.FindProperty(path)!)}");
+    }
+}
+
+// Lecture seule : montre hall_state et shadow_count à chaque changement, puis le bilan des états vus.
+async Task<int> HallAsync()
+{
+    int axis = IntOption("--axis", 0);
+    int seconds = IntOption("--seconds", 30);
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    PrintIdentity(device);
+    var hall = device.Schema.FindProperty($"axis{axis}.encoder.hall_state")!;
+    var count = device.Schema.FindProperty($"axis{axis}.encoder.shadow_count")!;
+    var error = device.Schema.FindProperty($"axis{axis}.encoder.error")!;
+
+    var seen = new SortedDictionary<int, int>();
+    int last = -1;
+    int transitions = 0;
+    var watch = Stopwatch.StartNew();
+    Console.WriteLine($"Tourner la roue à la main ({seconds} s)…");
+    while (watch.Elapsed < TimeSpan.FromSeconds(seconds))
+    {
+        int state = Convert.ToInt32(await device.ReadAsync(hall), CultureInfo.InvariantCulture);
+        seen[state] = seen.GetValueOrDefault(state) + 1;
+        if (state != last)
+        {
+            transitions += last < 0 ? 0 : 1;
+            last = state;
+            Console.WriteLine($"  {watch.Elapsed.TotalSeconds,6:F2} s  hall_state = {state} ({Convert.ToString(state, 2).PadLeft(3, '0')})"
+                + $"  shadow_count = {await device.ReadAsync(count)}");
+        }
+    }
+
+    Console.WriteLine($"{transitions} transition(s). États vus : "
+        + string.Join(", ", seen.Select(pair => $"{pair.Key} ({pair.Value} lectures)")));
+    Console.WriteLine($"  shadow_count final = {await device.ReadAsync(count)}, encoder.error = {await device.ReadAsync(error)}");
+    return 0;
 }
 
 // Ouvre la première carte (ou celle du numéro de série demandé), en attendant sa ré-énumération au besoin.
