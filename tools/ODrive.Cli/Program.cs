@@ -48,6 +48,8 @@ try
         "get" => await GetAsync(),
         "calibrate" => await CalibrateAsync(),
         "copy-axis" => await CopyAxisAsync(),
+        "idle" => await IdleAsync(),
+        "watch" => await WatchAsync(),
         "set" => await SetAsync(),
         "enter-dfu" => await EnterDfuAsync(),
         "dfu" => DfuInfo(),
@@ -83,6 +85,10 @@ int Help()
         odrive-cli set <chemin> <valeur> [--save]
                                              écrit une propriété (refusé hors IDLE) ; --save sauvegarde et redémarre
 
+        odrive-cli watch [--axis n] [--minutes m]
+                                             lecture seule : surveille la carte et s'arrête à la première
+                                             erreur nouvelle, avec les extrêmes relevés avant elle
+        odrive-cli idle                      met tous les axes en IDLE (même chemin que l'arrêt d'urgence)
         odrive-cli copy-axis <de> <vers> [--save]
                                              copie les réglages d'un axe sur l'autre, sans les résultats de
                                              calibration ni les broches ; --save sauvegarde et redémarre
@@ -594,6 +600,89 @@ async Task<int> SetAsync()
     {
         await device.DisposeAsync();
     }
+}
+
+// Guetteur en lecture seule : attend la première erreur qui n'était pas là au départ et rapporte ce qui la
+// précédait (la carte ne garde aucun historique).
+async Task<int> WatchAsync()
+{
+    int axis = IntOption("--axis", 0);
+    int minutes = IntOption("--minutes", 120);
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    PrintIdentity(device);
+    string prefix = $"axis{axis}.";
+    var velocity = device.Schema.GetProperty(prefix + "encoder.vel_estimate");
+    var iq = device.Schema.GetProperty(prefix + "motor.current_control.Iq_measured");
+    var iqSetpoint = device.Schema.GetProperty(prefix + "motor.current_control.Iq_setpoint");
+    var ibus = device.Schema.GetProperty("ibus");
+    var vbus = device.Schema.GetProperty("vbus_voltage");
+    var state = device.Schema.GetProperty(prefix + "current_state");
+    var brake = device.Schema.GetProperty("brake_resistor_saturated");
+
+    static string Key(ActiveError error) => error.Name + "@" + error.Source;
+    HashSet<string> baseline = [.. (await ErrorDecoder.ReadAllAsync(device)).Select(Key)];
+    Console.WriteLine(baseline.Count == 0
+        ? "Aucune erreur au départ."
+        : "Erreurs déjà présentes, ignorées : " + string.Join(", ", baseline));
+    Console.WriteLine($"Surveillance de l'axe {axis} pendant {minutes} min au plus…");
+
+    float maxVel = 0, maxIq = 0, maxIqSet = 0, minIbus = 0, maxIbus = 0, minVbus = float.MaxValue, maxVbus = 0;
+    bool saturated = false;
+    var recent = new Queue<string>();
+    var watch = Stopwatch.StartNew();
+    while (watch.Elapsed < TimeSpan.FromMinutes(minutes))
+    {
+        float v = await device.ReadAsync<float>(velocity), i = await device.ReadAsync<float>(iq);
+        float iSet = await device.ReadAsync<float>(iqSetpoint), ib = await device.ReadAsync<float>(ibus);
+        float vb = await device.ReadAsync<float>(vbus);
+        byte st = await device.ReadAsync<byte>(state);
+        saturated |= await device.ReadAsync<bool>(brake);
+        maxVel = Math.Max(maxVel, Math.Abs(v));
+        maxIq = Math.Max(maxIq, Math.Abs(i));
+        maxIqSet = Math.Max(maxIqSet, Math.Abs(iSet));
+        minIbus = Math.Min(minIbus, ib);
+        maxIbus = Math.Max(maxIbus, ib);
+        minVbus = Math.Min(minVbus, vb);
+        maxVbus = Math.Max(maxVbus, vb);
+        recent.Enqueue($"  {watch.Elapsed.TotalSeconds,8:F2} s  état {st}  vitesse {v,7:F2} tours/s  Iq {i,6:F1} A (consigne {iSet,6:F1})  Ibus {ib,6:F2} A  Vbus {vb,5:F1} V");
+        if (recent.Count > 25)
+        {
+            recent.Dequeue();
+        }
+
+        IReadOnlyList<ActiveError> errors = await ErrorDecoder.ReadAllAsync(device);
+        ActiveError[] fresh = [.. errors.Where(e => !baseline.Contains(Key(e)))];
+        if (fresh.Length > 0)
+        {
+            Console.WriteLine($"ERREUR à {DateTime.Now:HH:mm:ss} : " + string.Join(", ", fresh.Select(e => $"{e.Name} ({e.Source})")));
+            Console.WriteLine("Derniers relevés avant l'erreur :");
+            foreach (string line in recent)
+            {
+                Console.WriteLine(line);
+            }
+            break;
+        }
+    }
+
+    Console.WriteLine($"Extrêmes sur {watch.Elapsed.TotalMinutes:F1} min : vitesse {maxVel:F2} tours/s, Iq {maxIq:F1} A (consigne {maxIqSet:F1} A), "
+        + $"Ibus {minIbus:F2} à {maxIbus:F2} A, Vbus {minVbus:F1} à {maxVbus:F1} V, résistance de freinage saturée : {(saturated ? "oui" : "non")}.");
+    return 0;
+}
+
+async Task<int> IdleAsync()
+{
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    IReadOnlyList<EmergencyStopFailure> failures = await EmergencyStop.StopAsync([device]);
+    foreach (EmergencyStopFailure failure in failures)
+    {
+        Console.Error.WriteLine($"ÉCHEC sur {failure.Path}");
+    }
+    await Task.Delay(300);
+    foreach (int axis in new[] { 0, 1 })
+    {
+        Console.WriteLine($"  axis{axis}.current_state = {await device.ReadAsync(device.Schema.FindProperty($"axis{axis}.current_state")!)}");
+    }
+    return failures.Count == 0 ? 0 : 2;
 }
 
 async Task<int> CopyAxisAsync()
