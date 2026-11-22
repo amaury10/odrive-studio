@@ -180,5 +180,5 @@ Généré par `tools/fibre-tools/interface_generator.py:462-541`. Une liste de m
   libres). Après effacement du seul secteur 10 par le bootloader (il ne portait qu'une copie périmée), les
   sauvegardes refonctionnent ; la copie valide du secteur 11, carte d'anticogging comprise, est conservée.
   Cause exacte non établie (hypothèse : cellules laissées dans un état indéterminé par une écriture interrompue).
-- Sur cette même carte, `enter_dfu_mode()` coupe l'USB sans que le bootloader s'annonce : il a fallu
-  l'interrupteur DFU de la carte.
+- Sur cette même carte, `enter_dfu_mode()` coupe l'USB sans que le bootloader s'annonce, même en
+  USB direct ; le bootloader n'est apparu qu'après une manipulation sur la carte.
