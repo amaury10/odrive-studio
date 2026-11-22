@@ -84,8 +84,8 @@ int Help()
                                              affiche les capteurs Hall pendant qu'on tourne la roue à la main
 
         odrive-cli get <chemin> [<chemin>…]    lit des propriétés
-        odrive-cli set <chemin> <valeur> [--save]
-                                             écrit une propriété (refusé hors IDLE) ; --save sauvegarde et redémarre
+        odrive-cli set <chemin> <valeur> [--save | --live]
+                                             écrit une propriété (refusé hors IDLE sauf --live) ; --save sauvegarde et redémarre
 
         odrive-cli watch [--axis n] [--minutes m]
                                              lecture seule : surveille la carte et s'arrête à la première
@@ -616,10 +616,22 @@ async Task<int> SetAsync()
             return 1;
         }
         object value = ConfigProfile.ParseValue(property.Type, words[1]);
-        SafetyDecision decision = await SafetyGuard.AuthorizeConfigurationChangeAsync(device);
-        if (!decision.IsAllowed || SafetyGuard.IsMotionRequest(property.Path, value))
+        if (SafetyGuard.IsMotionRequest(property.Path, value))
         {
-            Console.Error.WriteLine("Écriture refusée : " + (decision.Reason ?? "elle mettrait un moteur en mouvement."));
+            Console.Error.WriteLine("Écriture refusée : elle mettrait un moteur en mouvement.");
+            return 1;
+        }
+        // --live : écriture sans sauvegarde pendant qu'un axe tourne (réglage à chaud, essai d'un watchdog).
+        bool live = args.Contains("--live");
+        if (live && args.Contains("--save"))
+        {
+            Console.Error.WriteLine("--live et --save sont incompatibles : la sauvegarde exige les axes en IDLE.");
+            return 1;
+        }
+        SafetyDecision decision = await SafetyGuard.AuthorizeConfigurationChangeAsync(device);
+        if (!live && !decision.IsAllowed)
+        {
+            Console.Error.WriteLine("Écriture refusée : " + decision.Reason + " (--live pour écrire sans sauvegarder)");
             return 1;
         }
 
