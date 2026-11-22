@@ -46,6 +46,7 @@ try
         "commission" => await CommissionAsync(),
         "hall" => await HallAsync(),
         "get" => await GetAsync(),
+        "stats" => await StatsAsync(),
         "calibrate" => await CalibrateAsync(),
         "copy-axis" => await CopyAxisAsync(),
         "idle" => await IdleAsync(),
@@ -84,6 +85,7 @@ int Help()
                                              affiche les capteurs Hall pendant qu'on tourne la roue à la main
 
         odrive-cli get <chemin> [<chemin>…]    lit des propriétés
+        odrive-cli stats <chemin> [--count n] lit une valeur n fois de suite : moyenne, écart type, extrêmes
         odrive-cli set <chemin> <valeur> [--save | --live]
                                              écrit une propriété (refusé hors IDLE sauf --live) ; --save sauvegarde et redémarre
 
@@ -580,6 +582,29 @@ async Task<int> HallAsync()
     Console.WriteLine($"{transitions} transition(s). États vus : "
         + string.Join(", ", seen.Select(pair => $"{pair.Key} ({pair.Value} lectures)")));
     Console.WriteLine($"  shadow_count final = {await device.ReadAsync(count)}, encoder.error = {await device.ReadAsync(error)}");
+    return 0;
+}
+
+async Task<int> StatsAsync()
+{
+    string? path = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal) && !int.TryParse(a, out _));
+    int count = IntOption("--count", 2000);
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    if (path is null || device.Schema.FindProperty(path) is not { } property)
+    {
+        Console.Error.WriteLine("Usage : odrive-cli stats <chemin> [--count n]");
+        return 1;
+    }
+    var samples = new double[count];
+    var watch = Stopwatch.StartNew();
+    for (int i = 0; i < count; i++)
+    {
+        samples[i] = Convert.ToDouble(await device.ReadAsync(property), CultureInfo.InvariantCulture);
+    }
+    double mean = samples.Average();
+    double std = Math.Sqrt(samples.Sum(v => (v - mean) * (v - mean)) / count);
+    Console.WriteLine($"{path} : {count} lectures en {watch.ElapsedMilliseconds} ms, moyenne {mean:F4}, écart type {std:F4}, "
+        + $"min {samples.Min():F4}, max {samples.Max():F4}");
     return 0;
 }
 
