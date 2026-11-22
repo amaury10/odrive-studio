@@ -49,6 +49,7 @@ try
         "calibrate" => await CalibrateAsync(),
         "copy-axis" => await CopyAxisAsync(),
         "idle" => await IdleAsync(),
+        "reboot" => await RebootAsync(),
         "watch" => await WatchAsync(),
         "set" => await SetAsync(),
         "enter-dfu" => await EnterDfuAsync(),
@@ -88,6 +89,7 @@ int Help()
         odrive-cli watch [--axis n] [--minutes m]
                                              lecture seule : surveille la carte et s'arrête à la première
                                              erreur nouvelle, avec les extrêmes relevés avant elle
+        odrive-cli reboot                    met les axes en IDLE puis redémarre la carte (sans sauvegarder)
         odrive-cli idle                      met tous les axes en IDLE (même chemin que l'arrêt d'urgence)
         odrive-cli copy-axis <de> <vers> [--save]
                                              copie les réglages d'un axe sur l'autre, sans les résultats de
@@ -464,7 +466,7 @@ async Task<int> CommissionAsync()
         }
 
         bool saved = await device.SaveConfigurationAsync();
-        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        Console.WriteLine(saved ? "save_configuration() envoyé, la carte redémarre." : "save_configuration() a répondu false.");
         await device.DisposeAsync();
 
         device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
@@ -590,10 +592,18 @@ async Task<int> SetAsync()
         }
 
         bool saved = await device.SaveConfigurationAsync();
-        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        Console.WriteLine(saved ? "save_configuration() envoyé, la carte redémarre." : "save_configuration() a répondu false.");
         await device.DisposeAsync();
         device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
-        Console.WriteLine($"Après redémarrage : {property.Path} = {ConfigProfile.FormatValue(await device.ReadAsync(device.Schema.FindProperty(property.Path)!))}");
+        object kept = await device.ReadAsync(device.Schema.FindProperty(property.Path)!);
+        Console.WriteLine($"Après redémarrage : {property.Path} = {ConfigProfile.FormatValue(kept)}");
+        // save_configuration() redémarre la carte même quand l'écriture en flash échoue (main.cpp:170-180) :
+        // seul le relu après redémarrage prouve que la valeur a été conservée.
+        if (!Equals(kept, value))
+        {
+            Console.Error.WriteLine("ÉCHEC : la carte a redémarré mais n'a PAS conservé la valeur. La sauvegarde en flash a échoué.");
+            return 2;
+        }
         return 0;
     }
     finally
@@ -669,6 +679,28 @@ async Task<int> WatchAsync()
     return 0;
 }
 
+async Task<int> RebootAsync()
+{
+    ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    ulong serial = device.SerialNumber;
+    try
+    {
+        await EmergencyStop.StopAsync([device]);
+        await Task.Delay(300);
+        await device.RebootAsync();
+        Console.WriteLine("reboot() envoyé.");
+        await device.DisposeAsync();
+        device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
+        Console.WriteLine("Carte reconnectée après redémarrage.");
+        await PrintAxisStatusAsync(device, 0);
+        return 0;
+    }
+    finally
+    {
+        await device.DisposeAsync();
+    }
+}
+
 async Task<int> IdleAsync()
 {
     await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
@@ -719,7 +751,7 @@ async Task<int> CopyAxisAsync()
         }
 
         bool saved = await device.SaveConfigurationAsync();
-        Console.WriteLine(saved ? "Configuration sauvegardée, la carte redémarre." : "save_configuration() a répondu false.");
+        Console.WriteLine(saved ? "save_configuration() envoyé, la carte redémarre." : "save_configuration() a répondu false.");
         await device.DisposeAsync();
         device = await ConnectAsync(TimeSpan.FromSeconds(15), serial);
         await PrintAxisStatusAsync(device, to);

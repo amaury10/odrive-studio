@@ -68,6 +68,47 @@ internal sealed class Bench
 public class DashboardViewModelTests
 {
     [Fact]
+    public async Task Full_dump_writes_every_property_and_the_endpoint_json_to_the_chosen_file()
+    {
+        Bench bench = await Bench.CreateAsync();
+        bench.Board.Set("vbus_voltage", 36.5f);
+        string path = Path.Combine(Path.GetTempPath(), $"odrive-releve-{Guid.NewGuid():N}.json");
+        bench.Dialogs.SavePath = path;
+        var dashboard = new DashboardViewModel(bench.Session);
+        try
+        {
+            await dashboard.DumpCommand.ExecuteAsync(null);
+
+            DeviceDump dump;
+            using (FileStream stream = File.OpenRead(path))
+            {
+                dump = DeviceDump.Load(stream);
+            }
+            dump.Values.Should().HaveCount(bench.Session.Device.Schema.Properties.Count);
+            dump.Values["vbus_voltage"].Should().Be(36.5f);
+            dump.JsonVersionId.Should().Be(bench.Session.Device.Schema.JsonVersionId);
+            bench.Status.Last().Should().Contain(path).And.Contain("propriétés");
+            bench.Journal.Entries.Should().BeEmpty("un relevé ne fait que lire");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task Full_dump_does_nothing_when_the_user_cancels_the_file_choice()
+    {
+        Bench bench = await Bench.CreateAsync();
+        bench.Dialogs.SavePath = null;
+        var dashboard = new DashboardViewModel(bench.Session);
+
+        await dashboard.DumpCommand.ExecuteAsync(null);
+
+        bench.Status.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task Refresh_shows_bus_and_axis_values_with_their_units()
     {
         Bench bench = await Bench.CreateAsync();

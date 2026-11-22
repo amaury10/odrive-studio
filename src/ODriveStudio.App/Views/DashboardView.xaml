@@ -21,6 +21,8 @@
                         </StackPanel>
                     </StackPanel>
                     <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="Relevé complet…" Command="{Binding DumpCommand}"
+                                ToolTip="Enregistre toutes les propriétés de la carte dans un fichier (lecture seule)" />
                         <Button Content="Effacer les erreurs" Command="{Binding ClearErrorsCommand}" />
                         <Button Content="Sauvegarder dans la carte" Command="{Binding SaveConfigurationCommand}" />
                         <Button Content="Redémarrer" Command="{Binding RebootCommand}" />

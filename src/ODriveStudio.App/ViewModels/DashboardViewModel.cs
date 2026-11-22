@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ODrive.Model;
@@ -147,6 +148,38 @@ public sealed partial class DashboardViewModel : ObservableObject
         await _session.Odrv.ClearErrorsAsync();
         _session.Status("Erreurs effacées.");
     });
+
+    /// <summary>
+    /// Relevé complet de la carte : toutes les propriétés et le JSON d'endpoints, dans le même format que
+    /// <c>odrive-cli dump</c>. Lecture seule ; sert de sauvegarde avant modification et de base de comparaison.
+    /// </summary>
+    [RelayCommand]
+    private async Task DumpAsync()
+    {
+        string? path = _session.Dialogs.PickSaveFile("Relevé complet de la carte",
+            $"odrive-{_session.Device.SerialNumber:X}-{DateTime.Now:yyyyMMdd-HHmmss}.dump.json",
+            "Relevé ODrive (*.dump.json)|*.dump.json|JSON (*.json)|*.json");
+        if (path is null)
+        {
+            return;
+        }
+
+        await _session.RunAsync("Relevé complet", async () =>
+        {
+            int total = _session.Device.Schema.Properties.Count;
+            DeviceDump dump = await DeviceDump.CaptureAsync(_session.Device);
+            try
+            {
+                await using FileStream stream = File.Create(path);
+                dump.Save(stream);
+                _session.Status($"Relevé complet écrit : {path} ({total} propriétés).");
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                _session.Status("Relevé complet impossible à écrire : " + e.Message);
+            }
+        });
+    }
 
     [RelayCommand]
     private Task RebootAsync() => ConfigurationChangeAsync("Redémarrer la carte",
