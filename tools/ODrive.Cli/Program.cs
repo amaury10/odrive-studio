@@ -47,6 +47,8 @@ try
         "hall" => await HallAsync(),
         "get" => await GetAsync(),
         "stats" => await StatsAsync(),
+        "call" => await CallAsync(),
+        "cogging-map" => await CoggingMapAsync(),
         "calibrate" => await CalibrateAsync(),
         "copy-axis" => await CopyAxisAsync(),
         "idle" => await IdleAsync(),
@@ -86,6 +88,11 @@ int Help()
 
         odrive-cli get <chemin> [<chemin>…]    lit des propriétés
         odrive-cli stats <chemin> [--count n] lit une valeur n fois de suite : moyenne, écart type, extrêmes
+        odrive-cli call <fonction>           appelle une fonction sans effet moteur direct (liste blanche :
+                                             clear_errors, axisN.controller.start_anticogging_calibration,
+                                             axisN.controller.remove_anticogging_bias)
+        odrive-cli cogging-map [--axis n] [--out f.csv]
+                                             lit les 3600 valeurs de la carte d'anticogging (Nm)
         odrive-cli set <chemin> <valeur> [--save | --live]
                                              écrit une propriété (refusé hors IDLE sauf --live) ; --save sauvegarde et redémarre
 
@@ -582,6 +589,46 @@ async Task<int> HallAsync()
     Console.WriteLine($"{transitions} transition(s). États vus : "
         + string.Join(", ", seen.Select(pair => $"{pair.Key} ({pair.Value} lectures)")));
     Console.WriteLine($"  shadow_count final = {await device.ReadAsync(count)}, encoder.error = {await device.ReadAsync(error)}");
+    return 0;
+}
+
+async Task<int> CallAsync()
+{
+    string? path = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
+    string[] allowed = ["clear_errors", "axis0.controller.start_anticogging_calibration", "axis1.controller.start_anticogging_calibration",
+        "axis0.controller.remove_anticogging_bias", "axis1.controller.remove_anticogging_bias"];
+    if (path is null || !allowed.Contains(path))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli call <" + string.Join("|", allowed) + ">");
+        return 1;
+    }
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    IReadOnlyList<object> outputs = await device.CallAsync(path, []);
+    Console.WriteLine($"{path}() → " + (outputs.Count == 0 ? "(rien)" : string.Join(", ", outputs.Select(ConfigProfile.FormatValue))));
+    return 0;
+}
+
+// Carte d'anticogging : 3600 couples (Nm), un par 1/3600 de tour, lus par get_anticogging_value(index)
+// (odrive-interface.yaml:1200). Elle n'est lisible que par cette fonction : ni le relevé ni un profil ne la contiennent.
+async Task<int> CoggingMapAsync()
+{
+    int axis = IntOption("--axis", 0);
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    string function = $"axis{axis}.controller.get_anticogging_value";
+    var values = new float[3600];
+    for (uint i = 0; i < values.Length; i++)
+    {
+        values[i] = Convert.ToSingle((await device.CallAsync(function, [i]))[0], CultureInfo.InvariantCulture);
+    }
+    double mean = values.Average(v => (double)v);
+    double rms = Math.Sqrt(values.Average(v => (double)v * v));
+    Console.WriteLine($"Carte axe {axis} : moyenne {mean:F4} Nm, efficace {rms:F4} Nm, min {values.Min():F4}, max {values.Max():F4} Nm, "
+        + $"valeurs nulles : {values.Count(v => v == 0f)}");
+    if (outPath is not null)
+    {
+        File.WriteAllLines(outPath, ["index,torque_nm", .. values.Select((v, i) => string.Create(CultureInfo.InvariantCulture, $"{i},{v:R}"))]);
+        Console.WriteLine("Écrit : " + Path.GetFullPath(outPath));
+    }
     return 0;
 }
 
