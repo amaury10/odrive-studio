@@ -57,6 +57,7 @@ try
         "backup" => Backup(),
         "flash" => Flash(),
         "leave-dfu" => LeaveDfu(),
+        "erase-sector" => EraseSector(),
         "image" => Image(),
         _ => Help(),
     };
@@ -105,6 +106,9 @@ int Help()
         odrive-cli flash <f.elf|.hex|.bin> --yes efface la flash, écrit et vérifie ; --stay pour rester en DFU
         odrive-cli image <fichier>           décrit un fichier firmware (.elf, .hex) ou une sauvegarde (.bin)
         odrive-cli leave-dfu                 quitte le bootloader et démarre le firmware
+        odrive-cli erase-sector <0xADRESSE> --yes
+                                             efface UN secteur de flash (ex. 0x080C0000 = secteur 10, copie de
+                                             configuration périmée) ; faire « backup » avant
 
         --sim : utilise la carte simulée au lieu de l'USB.
         """);
@@ -310,6 +314,42 @@ int Image()
         ? $"  Carte visée d'après le nom : v{version.Major}.{version.Minor}-{version.Variant}V"
         : "  Carte visée : le nom du fichier ne la donne pas.");
     return plausible ? 0 : 2;
+}
+
+// Efface un seul secteur de la flash interne. Usage prévu : remettre à neuf le secteur de configuration qui
+// ne porte pas la copie valide (stm32_nvm.c : secteurs 10 et 11 en double tampon).
+int EraseSector()
+{
+    string? text = args.Skip(1).FirstOrDefault(a => !a.StartsWith("--", StringComparison.Ordinal));
+    if (text is null || !args.Contains("--yes")
+        || !uint.TryParse(text.Replace("0x", "", StringComparison.OrdinalIgnoreCase), NumberStyles.HexNumber,
+            CultureInfo.InvariantCulture, out uint address))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli erase-sector <0xADRESSE> --yes");
+        return 1;
+    }
+
+    using DfuSeDevice? dfu = OpenDfu();
+    if (dfu is null)
+    {
+        return 1;
+    }
+    DfuSector? sector = dfu.InternalFlash.FirstOrDefault(s => s.Address == address);
+    if (sector is null)
+    {
+        Console.Error.WriteLine($"0x{address:X8} n'est pas le début d'un secteur de la flash interne.");
+        return 1;
+    }
+    if (address == dfu.InternalFlash[0].Address)
+    {
+        Console.Error.WriteLine("Refusé : le secteur 0 porte la table de vecteurs du firmware.");
+        return 1;
+    }
+
+    dfu.EraseSector(sector);
+    bool blank = !dfu.ReadSector(sector).AsSpan().ContainsAnyExcept((byte)0xFF);
+    Console.WriteLine($"Secteur 0x{address:X8} ({sector.Length} octets) effacé ; relu vierge : {(blank ? "oui" : "NON")}.");
+    return blank ? 0 : 2;
 }
 
 int LeaveDfu()

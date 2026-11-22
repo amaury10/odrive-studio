@@ -167,3 +167,18 @@ Généré par `tools/fibre-tools/interface_generator.py:462-541`. Une liste de m
   liaison, reboot et reconnexion, cache du JSON.
 - Le tramage série (CRC8 d'en-tête, CRC16 de fin) n'est pas implémenté : seuls les CRC le sont. Il viendra
   avec le transport série de repli, si le besoin se confirme.
+
+## Sauvegarde de la configuration (`save_configuration`)
+- La carte redémarre **que l'écriture en flash réussisse ou non** (`Firmware/MotorControl/main.cpp:170-180`) :
+  la perte de liaison ne prouve rien. Seule la relecture d'une valeur après redémarrage fait foi
+  (`odrive-cli set … --save` le fait et signale l'échec).
+- Stockage (`Firmware/Drivers/STM32/stm32_nvm.c`) : double tampon dans les secteurs 10 (0x080C0000) et 11
+  (0x080E0000), 128 Ko chacun, table d'allocation de 2 bits par champ de 8 octets. Le secteur lu au démarrage
+  est celui dont le dernier champ écrit est « valide ».
+- Relevé sur une v3.6-56V (volant, 2026-11-22) : six sauvegardes de suite redémarrent la carte sans rien écrire,
+  pas même le marqueur « invalide » qui précède toute écriture dans le secteur cible (secteur 10, 12 080 champs
+  libres). Après effacement du seul secteur 10 par le bootloader (il ne portait qu'une copie périmée), les
+  sauvegardes refonctionnent ; la copie valide du secteur 11, carte d'anticogging comprise, est conservée.
+  Cause exacte non établie (hypothèse : cellules laissées dans un état indéterminé par une écriture interrompue).
+- Sur cette même carte, `enter_dfu_mode()` coupe l'USB sans que le bootloader s'annonce : il a fallu
+  l'interrupteur DFU de la carte.
