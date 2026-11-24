@@ -85,10 +85,12 @@ Reporté :
 ## Phase 5 — Réglage manuel et tests d'échelon
 - [ ] Générateur de consignes, StepAnalysis, historique annuler / rétablir.
 
-## Phase 6 — Autotune
-- [ ] Identification (fonctions pures testées sur le simulateur), calcul des gains, validation, interface.
-**Acceptation :** sur le simulateur, gains retrouvés à ±15 % des valeurs théoriques ; sur le matériel,
-réponse à l'échelon sans oscillation, roue soulevée.
+## Phase 6 — Autotune ✅ (sur le simulateur)
+- [x] Identification (fonctions pures testées sur le simulateur), calcul des gains, validation, interface
+      (onglet « Autotune », `odrive-cli autotune`). Voir docs/AUTOTUNE.md §Implémentation.
+**Acceptation :** sur le simulateur, gains retrouvés à ±15 % des valeurs théoriques (vérifié sur deux
+mécaniques, et en temps réel : J retrouvé à 0,1 %) ; sur le matériel, réponse à l'échelon sans oscillation,
+roue soulevée : à faire sur le banc de la mini-voiture.
 
 ## Phase 7 — Anticogging
 - [ ] Workflow complet, avertissement Hall, mesure avant/après (validé sur le simulateur avec couple de

@@ -42,7 +42,23 @@ Préréglages de raideur : souple / normal / raide.
 Option avancée pour les systèmes mal modélisés : oscillation entretenue par relais de couple autour d'une
 vitesse moyenne, puis règles de Ziegler-Nichols modifiées. Mêmes protections et même validation.
 
-## Implémentation
-`ODrive.Tuning.Autotune` : machine d'états asynchrone annulable (`CancellationToken`) ; chaque sortie
-d'état restaure la configuration de départ. Les algorithmes d'identification sont des fonctions pures,
-testées sur des signaux synthétiques générés par le simulateur.
+## Implémentation (phase 6)
+- `ODrive.Tuning.Autotune` : `PlantIdentification`, `GainDesign` et `StepAnalysis` sont des fonctions pures ;
+  `Autotuner.RunAsync` orchestre, annulable, et restaure toujours la configuration de départ (axe en IDLE).
+  `Autotuner.ApplyAsync` écrit les gains proposés, sans sauvegarder. Interfaces : onglet « Autotune »,
+  `odrive-cli autotune --yes [--stiffness …] [--apply]`.
+- Identification : paliers `+τ, −τ, +τ/2, −τ/2` coupés à la vitesse plafond, chacun suivi d'une roue libre.
+  Le couple de départ (10 % du disponible) est doublé si la roue ne bouge pas, divisé par deux si elle
+  atteint le plafond en moins de 150 relevés.
+- Pendant l'identification, `enable_torque_mode_vel_limit` est coupé : ce limiteur écrête le couple dès
+  l'arrêt quand `vel_gain` est faible (`controller.cpp:137-141, 388-394`), et le couple appliqué ne serait plus
+  le couple commandé. La vitesse est bornée par la coupure des paliers et par `vel_limit` = 2 × plafond.
+- Accélération : pente d'une droite ajustée sur **±5 ms**, pas sur un nombre fixe de relevés. Relevé
+  constaté : en lecture continue sur le simulateur, l'intervalle médian entre lectures est de 8,7 µs ; une
+  fenêtre de 21 relevés (0,2 ms) rendait le bruit de pente comparable aux accélérations, et l'ajustement
+  divisait l'inertie par 2,3 (biais des variables entachées d'erreur).
+- Validation : fenêtre de l'échelon de vitesse `12/ωc` s (0,3 à 3 s), de l'échelon de position `40/ωc` s
+  (0,5 à 5 s). Dépassement > 20 % ou oscillation : ωc × 0,7 (vitesse) ou `pos_gain` × 0,7 (position), 3 essais.
+- Simulateur : `SimulatedMotorOptions.Mechanics` ajoute inertie, frottements et la reproduction des boucles du
+  firmware (`controller.cpp:296-420`) ; l'application `--sim` l'utilise.
+- Non fait : graphique avant/après (attend les courbes de la phase 4), variante relais.

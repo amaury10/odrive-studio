@@ -45,6 +45,9 @@ internal sealed class MotorBench : IAsyncDisposable
 
     private long[] _shared = [0];
 
+    /// <summary>Horloge de la carte simulée : n'avance qu'avec <see cref="DelayAsync"/>.</summary>
+    public TimeSpan Now => new(Interlocked.Read(ref _shared[0]));
+
     public async Task DelayAsync(TimeSpan duration, CancellationToken ct)
     {
         Interlocked.Add(ref _shared[0], duration.Ticks);

@@ -75,7 +75,11 @@ public partial class App : Application
     {
         SimulatedODrive board = SimulatedODrive.CreateReference();
         // Un moteur roue d'hoverboard « branché » sur chaque axe : calibrations, boucle fermée, watchdog.
-        SimulatedMotorModel.Attach(board);
+        // Avec sa mécanique (inertie, frottements) : l'autotune a quelque chose à identifier.
+        SimulatedMotorModel.Attach(board, new SimulatedMotorOptions
+        {
+            Mechanics = new MechanicalLoad(Inertia: 0.02, Viscous: 0.01, Coulomb: 0.05, VelocityNoise: 0.002),
+        });
         var normal = new SimulatedTransportSource(board);
         sources.Add(normal);
 

@@ -94,6 +94,15 @@
                                Visibility="{Binding HasDevice, Converter={StaticResource InverseBoolToVisibility}}" />
                 </Grid>
             </TabItem>
+            <TabItem Header="Autotune" Padding="14,6">
+                <Grid>
+                    <ContentControl Content="{Binding SelectedDevice.Autotune}"
+                                    Visibility="{Binding HasDevice, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="Aucune carte ODrive connectée." FontSize="15" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" Foreground="{StaticResource MutedText}"
+                               Visibility="{Binding HasDevice, Converter={StaticResource InverseBoolToVisibility}}" />
+                </Grid>
+            </TabItem>
             <TabItem Header="Profils" Padding="14,6">
                 <Grid>
                     <ContentControl Content="{Binding SelectedDevice.Profiles}"

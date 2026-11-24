@@ -56,6 +56,9 @@
         <DataTemplate DataType="{x:Type vm:JogViewModel}">
             <views:JogView />
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vm:AutotuneViewModel}">
+            <views:AutotuneView />
+        </DataTemplate>
         <DataTemplate DataType="{x:Type vm:ProfilesViewModel}">
             <views:ProfilesView />
         </DataTemplate>

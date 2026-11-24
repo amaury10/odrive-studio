@@ -40,6 +40,7 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
         Explorer = new ExplorerViewModel(session);
         Commissioning = new CommissioningViewModel(session);
         Jog = new JogViewModel(session);
+        Autotune = new AutotuneViewModel(session);
         Profiles = new ProfilesViewModel(session);
         SerialNumber = session.Device.SerialNumber.ToString("X", CultureInfo.InvariantCulture);
     }
@@ -50,6 +51,7 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
     public ExplorerViewModel Explorer { get; }
     public CommissioningViewModel Commissioning { get; }
     public JogViewModel Jog { get; }
+    public AutotuneViewModel Autotune { get; }
     public ProfilesViewModel Profiles { get; }
     public string SerialNumber { get; }
 
@@ -120,6 +122,7 @@ public sealed partial class DeviceViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         Jog.Dispose();
+        Autotune.Dispose();
         Commissioning.Dispose();
         _polling.Cancel();
         _polling.Dispose();

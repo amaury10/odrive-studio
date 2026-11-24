@@ -7,6 +7,7 @@ using ODrive.Protocol.Dfu;
 using ODrive.Protocol.Simulation;
 using ODrive.Protocol.Transport;
 using ODrive.Protocol.Transport.WinUsb;
+using ODrive.Tuning.Autotune;
 using ODrive.Tuning.Commissioning;
 using ODrive.Tuning.Profiles;
 
@@ -50,6 +51,7 @@ try
         "call" => await CallAsync(),
         "cogging-map" => await CoggingMapAsync(),
         "calibrate" => await CalibrateAsync(),
+        "autotune" => await AutotuneAsync(),
         "copy-axis" => await CopyAxisAsync(),
         "idle" => await IdleAsync(),
         "reboot" => await RebootAsync(),
@@ -104,6 +106,10 @@ int Help()
         odrive-cli copy-axis <de> <vers> [--save]
                                              copie les réglages d'un axe sur l'autre, sans les résultats de
                                              calibration ni les broches ; --save sauvegarde et redémarre
+        odrive-cli autotune --yes [--axis n] [--stiffness souple|normale|raide] [--apply]
+                                             identifie inertie et frottements, propose vel_gain,
+                                             vel_integrator_gain et pos_gain, les valide par échelons.
+                                             LE MOTEUR TOURNE. --apply écrit les gains (sans sauvegarder)
         odrive-cli calibrate <motor|hall|offset|full> --yes [--axis n]
                                              lance une calibration : LE MOTEUR EST ALIMENTÉ ET PEUT TOURNER.
                                              Ctrl+C remet l'axe en IDLE.
@@ -887,6 +893,63 @@ async Task<int> CopyAxisAsync()
     }
 }
 
+async Task<int> AutotuneAsync()
+{
+    if (!args.Contains("--yes"))
+    {
+        Console.Error.WriteLine("Usage : odrive-cli autotune --yes [--axis n] [--stiffness souple|normale|raide] [--apply]");
+        Console.Error.WriteLine("Le moteur tourne : roue soulevée ou libre de tourner.");
+        return 1;
+    }
+    int index = Array.IndexOf(args, "--stiffness");
+    string stiffnessText = index >= 0 && index + 1 < args.Length ? args[index + 1] : "normale";
+    var options = new AutotuneOptions
+    {
+        Axis = IntOption("--axis", 0),
+        Stiffness = stiffnessText switch { "souple" => Stiffness.Soft, "raide" => Stiffness.Stiff, _ => Stiffness.Normal },
+        Progress = new InlineTextProgress(message => Console.WriteLine("  " + message)),
+    };
+
+    await using ODriveDevice device = await ConnectAsync(TimeSpan.Zero);
+    using var cancel = new CancellationTokenSource();
+    Console.CancelKeyPress += (_, e) =>
+    {
+        e.Cancel = true;
+        cancel.Cancel();
+    };
+    try
+    {
+        (AutotuneResult? result, string? refusal) = await Autotuner.RunAsync(device, options, new SafetyGuard(), _ => true, cancel.Token);
+        if (result is null)
+        {
+            Console.Error.WriteLine("Autotune refusé : " + refusal);
+            return 2;
+        }
+        Console.WriteLine($"Inertie J = {result.Plant.Inertia:G4} Nm/(tour/s²), frottement sec {result.Plant.Coulomb:G3} Nm, "
+            + $"visqueux {result.Plant.Viscous:G3} Nm/(tour/s), R² = {result.Plant.RSquared:F3} ({result.Plant.SampleCount} relevés)");
+        Console.WriteLine($"{"gain",-22}{"carte",14}{"proposé",14}");
+        Console.WriteLine($"{"vel_gain",-22}{result.Initial.VelGain,14:G4}{result.Proposed.VelGain,14:G4}");
+        Console.WriteLine($"{"vel_integrator_gain",-22}{result.Initial.VelIntegratorGain,14:G4}{result.Proposed.VelIntegratorGain,14:G4}");
+        Console.WriteLine($"{"pos_gain",-22}{result.Initial.PosGain,14:G4}{result.Proposed.PosGain,14:G4}");
+        Console.WriteLine($"Échelon de vitesse : dépassement {result.VelocityStep.Overshoot:P0}, établi en {result.VelocityStep.SettlingTime:F3} s"
+            + (result.VelocityStep.Oscillating ? ", OSCILLE" : ""));
+        Console.WriteLine($"Échelon de position : dépassement {result.PositionStep.Overshoot:P0}, établi en {result.PositionStep.SettlingTime:F3} s"
+            + (result.PositionStep.Oscillating ? ", OSCILLE" : ""));
+        Console.WriteLine(result.Validated ? "Validation : OK." : "Validation : NON satisfaisante.");
+        if (args.Contains("--apply"))
+        {
+            await Autotuner.ApplyAsync(device, options.Axis, result.Proposed);
+            Console.WriteLine("Gains écrits dans la carte (non sauvegardés).");
+        }
+        return result.Validated ? 0 : 2;
+    }
+    catch (OperationCanceledException)
+    {
+        Console.WriteLine("Annulé : moteur arrêté, réglages restaurés.");
+        return 1;
+    }
+}
+
 // Calibration d'un axe, par le même chemin que l'assistant (SafetyGuard puis AxisStateRunner). --yes tient
 // lieu de confirmation « roues soulevées » ; Ctrl+C annule et remet l'axe en IDLE.
 async Task<int> CalibrateAsync()
@@ -1043,6 +1106,11 @@ bool ReportReferenceJson(ODriveDevice device)
 internal sealed class InlineProgress(Action<int> report) : IProgress<int>
 {
     public void Report(int value) => report(value);
+}
+
+internal sealed class InlineTextProgress(Action<string> report) : IProgress<string>
+{
+    public void Report(string value) => report(value);
 }
 
 internal sealed class InlineStateProgress(Action<AxisState> report) : IProgress<AxisState>

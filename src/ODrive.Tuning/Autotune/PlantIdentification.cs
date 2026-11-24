@@ -17,8 +17,14 @@ public sealed record PlantEstimate(double Inertia, double Viscous, double Coulom
 /// <summary>Identification de l'inertie et des frottements à partir de paliers de couple (fonction pure).</summary>
 public static class PlantIdentification
 {
-    /// <summary>Demi-largeur de la fenêtre de dérivation, en relevés.</summary>
-    private const int HalfWindow = 10;
+    /// <summary>
+    /// Demi-largeur de la fenêtre de dérivation, en secondes. Une durée et non un nombre de relevés : à
+    /// 100 000 lectures/s (simulateur), 21 relevés ne couvrent que 0,2 ms et le bruit de la pente écrase l'inertie.
+    /// </summary>
+    private const double HalfWindow = 0.005;
+
+    /// <summary>Relevés minimum dans une fenêtre de dérivation.</summary>
+    private const int MinimumWindowSamples = 9;
 
     /// <summary>Vitesse en dessous de laquelle un relevé est écarté (adhérence, bruit), en tours/s.</summary>
     private const double MinimumSpeed = 0.05;
@@ -36,17 +42,19 @@ public static class PlantIdentification
         double peak = s.Length == 0 ? 0 : s.Max(sample => Math.Abs(sample.Velocity));
         double threshold = Math.Max(MinimumSpeed, 0.05 * peak);
 
+        double[] slopes = Slopes(s, out bool[] valid);
+
         // Équations normales de [a, ω, signe(ω)] · [J, b, τc] = τ.
         var ata = new double[3, 3];
         var atb = new double[3];
         var rows = new List<(double[] X, double Y)>();
-        for (int i = HalfWindow; i < s.Length - HalfWindow; i++)
+        for (int i = 0; i < s.Length; i++)
         {
-            if (Math.Abs(s[i].Velocity) < threshold || !ConstantTorque(s, i))
+            if (!valid[i] || Math.Abs(s[i].Velocity) < threshold)
             {
                 continue;
             }
-            double[] x = [Slope(s, i), s[i].Velocity, Math.Sign(s[i].Velocity)];
+            double[] x = [slopes[i], s[i].Velocity, Math.Sign(s[i].Velocity)];
             rows.Add((x, s[i].Torque));
             for (int r = 0; r < 3; r++)
             {
@@ -77,38 +85,64 @@ public static class PlantIdentification
         return new PlantEstimate(theta[0], theta[1], theta[2], rSquared, rows.Count);
     }
 
-    private static bool ConstantTorque(MotionSample[] s, int i)
+    // Pente de la droite des moindres carrés vitesse(temps) sur la fenêtre [t − W, t + W] de chaque relevé,
+    // par sommes cumulées (temps linéaire). Fenêtre valable si elle tient dans l'enregistrement, contient assez
+    // de relevés et ne chevauche pas de changement de couple.
+    private static double[] Slopes(MotionSample[] s, out bool[] valid)
     {
-        for (int k = i - HalfWindow; k <= i + HalfWindow; k++)
+        int n = s.Length;
+        var slopes = new double[n];
+        valid = new bool[n];
+        if (n == 0)
         {
-            if (s[k].Torque != s[i].Torque)
+            return slopes;
+        }
+
+        double origin = s[0].Time;
+        var segment = new int[n];
+        var st = new double[n + 1];
+        var sv = new double[n + 1];
+        var stt = new double[n + 1];
+        var stv = new double[n + 1];
+        for (int i = 0; i < n; i++)
+        {
+            segment[i] = i == 0 ? 0 : segment[i - 1] + (s[i].Torque != s[i - 1].Torque ? 1 : 0);
+            double t = s[i].Time - origin;
+            st[i + 1] = st[i] + t;
+            sv[i + 1] = sv[i] + s[i].Velocity;
+            stt[i + 1] = stt[i] + t * t;
+            stv[i + 1] = stv[i] + t * s[i].Velocity;
+        }
+
+        int lo = 0, hi = 0;
+        double first = s[0].Time, last = s[n - 1].Time;
+        for (int i = 0; i < n; i++)
+        {
+            double t = s[i].Time;
+            while (s[lo].Time < t - HalfWindow)
             {
-                return false;
+                lo++;
+            }
+            while (hi + 1 < n && s[hi + 1].Time <= t + HalfWindow)
+            {
+                hi++;
+            }
+            int count = hi - lo + 1;
+            if (t - HalfWindow < first || t + HalfWindow > last || count < MinimumWindowSamples
+                || segment[lo] != segment[i] || segment[hi] != segment[i])
+            {
+                continue;
+            }
+            double sumT = st[hi + 1] - st[lo], sumV = sv[hi + 1] - sv[lo];
+            double sumTT = stt[hi + 1] - stt[lo], sumTV = stv[hi + 1] - stv[lo];
+            double den = count * sumTT - sumT * sumT;
+            if (den > 0)
+            {
+                slopes[i] = (count * sumTV - sumT * sumV) / den;
+                valid[i] = true;
             }
         }
-        return true;
-    }
-
-    // Pente de la droite des moindres carrés vitesse(temps) sur la fenêtre centrée en i.
-    private static double Slope(MotionSample[] s, int i)
-    {
-        double tMean = 0, vMean = 0;
-        int n = 2 * HalfWindow + 1;
-        for (int k = i - HalfWindow; k <= i + HalfWindow; k++)
-        {
-            tMean += s[k].Time;
-            vMean += s[k].Velocity;
-        }
-        tMean /= n;
-        vMean /= n;
-        double num = 0, den = 0;
-        for (int k = i - HalfWindow; k <= i + HalfWindow; k++)
-        {
-            double dt = s[k].Time - tMean;
-            num += dt * (s[k].Velocity - vMean);
-            den += dt * dt;
-        }
-        return den > 0 ? num / den : 0;
+        return slopes;
     }
 
     // Élimination de Gauss avec pivot partiel, système 3 × 3.

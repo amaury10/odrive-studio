@@ -12,11 +12,11 @@ internal static class SyntheticPlant
     /// d'horloge et du bruit de vitesse (comme une lecture USB).
     /// </summary>
     public static List<MotionSample> TorqueSteps(double inertia, double viscous, double coulomb, double[] torques,
-        double stepDuration = 0.25, double coastDuration = 0.3, double noise = 0.002, int seed = 1)
+        double stepDuration = 0.25, double coastDuration = 0.3, double noise = 0.002, int seed = 1, double samplePeriod = 0.0004)
     {
         var random = new Random(seed);
         var samples = new List<MotionSample>();
-        const double h = 1e-4;
+        double h = Math.Min(1e-4, samplePeriod / 2);
         double t = 0, velocity = 0, nextSample = 0;
         foreach (double torque in torques)
         {
@@ -37,7 +37,7 @@ internal static class SyntheticPlant
                     if (t >= nextSample)
                     {
                         samples.Add(new MotionSample(t, applied, velocity + noise * Gaussian(random)));
-                        nextSample = t + 0.0004 + 0.0004 * random.NextDouble(); // 1250 à 2500 lectures/s
+                        nextSample = t + samplePeriod * (1 + random.NextDouble()); // lecture USB irrégulière
                     }
                 }
             }
@@ -87,6 +87,23 @@ public class PlantIdentificationTests
         estimate.Inertia.Should().BeApproximately(inertia, inertia * 0.05);
         estimate.Coulomb.Should().BeApproximately(coulomb, 0.02 + coulomb * 0.1);
         estimate.Viscous.Should().BeApproximately(viscous, 0.02);
+        estimate.RSquared.Should().BeGreaterThan(0.9);
+    }
+
+    // Déroulé réel de l'autotune : palier court (coupé vers 2 tours/s), longue roue libre. Relevé en temps réel sur le
+    // simulateur : intervalle médian de 8,7 µs. Une fenêtre de dérivation de 21
+    // lectures ne couvre alors qu'une fraction de milliseconde et le bruit de vitesse écrasait l'inertie.
+    [Theory]
+    [InlineData(0.000005)]
+    [InlineData(0.0002)]
+    public void Fast_sampling_does_not_bias_the_inertia(double samplePeriod)
+    {
+        List<MotionSample> samples = SyntheticPlant.TorqueSteps(0.02, 0.01, 0.05, [0.5, -0.5, 0.25, -0.25], stepDuration: 0.08, coastDuration: 0.8,
+            samplePeriod: samplePeriod);
+
+        PlantEstimate estimate = PlantIdentification.Fit(samples);
+
+        estimate.Inertia.Should().BeApproximately(0.02, 0.002);
         estimate.RSquared.Should().BeGreaterThan(0.9);
     }
 
