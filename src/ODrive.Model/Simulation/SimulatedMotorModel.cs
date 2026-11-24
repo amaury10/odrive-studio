@@ -19,7 +19,21 @@ public sealed record SimulatedMotorOptions(
     public double MotorCalibrationTime { get; init; } = 4;
     public double HallPolarityCalibrationTime { get; init; } = 3;
     public double EncoderOffsetCalibrationTime { get; init; } = 6;
+
+    /// <summary>
+    /// Mécanique réelle de l'axe. Absente : la vitesse suit sa consigne avec le retard <see cref="ResponseTime"/>
+    /// (assez pour l'assistant et le jog). Présente : inertie et frottements, pilotés par la reproduction des
+    /// boucles position → vitesse → couple du firmware avec les gains de la carte (pour l'autotune).
+    /// </summary>
+    public MechanicalLoad? Mechanics { get; init; }
 }
+
+/// <summary>Charge mécanique d'un axe simulé, en unités firmware (tours).</summary>
+/// <param name="Inertia">J, en Nm/(tour/s²).</param>
+/// <param name="Viscous">Frottement visqueux, en Nm/(tour/s).</param>
+/// <param name="Coulomb">Frottement sec, en Nm.</param>
+/// <param name="VelocityNoise">Écart type du bruit de <c>encoder.vel_estimate</c>, en tours/s.</param>
+public sealed record MechanicalLoad(double Inertia, double Viscous = 0, double Coulomb = 0, double VelocityNoise = 0);
 
 /// <summary>
 /// Modèle moteur simple greffé sur <see cref="SimulatedODrive"/> : machine d'états des axes avec les
@@ -97,12 +111,14 @@ public sealed class SimulatedMotorModel
         private double _velocity;
         private double _position;
         private double _velocitySetpoint;
+        private double _integrator;
+        private readonly Random _noise = new(1);
 
         public void Boot(TimeSpan now)
         {
             _chain.Clear();
             _state = AxisState.Idle;
-            _velocity = _position = _velocitySetpoint = 0;
+            _velocity = _position = _velocitySetpoint = _integrator = 0;
             _watchdogFed = now;
             // motor.cpp:306 et encoder.cpp:26-30 : au démarrage, calibré = pre_calibrated.
             Set("motor.is_calibrated", Get<bool>("motor.config.pre_calibrated"));
@@ -168,6 +184,12 @@ public sealed class SimulatedMotorModel
                 case AxisState.ClosedLoopControl:
                     RunClosedLoop(now, dt);
                     break;
+                case AxisState.Idle when motor.Mechanics is { } load:
+                    for (double left = dt; left > 0; left -= PhysicsStep)
+                    {
+                        Integrate(load, 0, Math.Min(PhysicsStep, left));
+                    }
+                    break;
                 case AxisState.Idle:
                     _velocity *= Math.Exp(-dt / 0.3); // roue libre : ralentit par frottement
                     _position += _velocity * dt;
@@ -210,6 +232,8 @@ public sealed class SimulatedMotorModel
                         && Get<int>("encoder.config.direction") != 0 && Get<bool>("encoder.is_ready"):
                     _watchdogFed = now; // axis.cpp:577
                     _velocitySetpoint = _velocity;
+                    _integrator = 0;                         // axis.cpp:294
+                    Set("controller.input_pos", (float)_position); // controller.cpp:118-126 : la consigne part de la position actuelle
                     break;
 
                 default:
@@ -263,6 +287,12 @@ public sealed class SimulatedMotorModel
                 return;
             }
 
+            if (motor.Mechanics is { } load)
+            {
+                RunFirmwareLoops(load, dt);
+                return;
+            }
+
             double limit = Get<float>("controller.config.vel_limit");
             double target;
             switch ((ControlMode)Get<byte>("controller.config.control_mode"))
@@ -302,6 +332,99 @@ public sealed class SimulatedMotorModel
             Set("motor.current_control.Iq_measured", (float)(torque / torqueConstant));
         }
 
+        // Pas d'intégration : la boucle de commande du firmware tourne à 8 kHz (current_meas_hz).
+        private const double PhysicsStep = 1.0 / 8000;
+
+        // controller.cpp:296-420, sans les modes d'entrée filtrés ni l'anticogging : passthrough et rampe de vitesse.
+        private void RunFirmwareLoops(MechanicalLoad load, double dt)
+        {
+            var mode = (ControlMode)Get<byte>("controller.config.control_mode");
+            var inputMode = (InputMode)Get<byte>("controller.config.input_mode");
+            double inputPos = Get<float>("controller.input_pos"), inputVel = Get<float>("controller.input_vel");
+            double inputTorque = Get<float>("controller.input_torque");
+            double posGain = Get<float>("controller.config.pos_gain"), velGain = Get<float>("controller.config.vel_gain");
+            double integratorGain = Get<float>("controller.config.vel_integrator_gain");
+            double velLimit = Get<float>("controller.config.vel_limit");
+            bool enableVelLimit = Get<bool>("controller.config.enable_vel_limit");
+            bool torqueModeVelLimit = Get<bool>("controller.config.enable_torque_mode_vel_limit");
+            double tolerance = Get<float>("controller.config.vel_limit_tolerance");
+            bool overspeedError = Get<bool>("controller.config.enable_overspeed_error");
+            double torqueConstant = Math.Max(Get<float>("motor.config.torque_constant"), 1e-3f);
+            double torqueLimit = Math.Min(Get<float>("motor.config.current_lim") * torqueConstant,
+                Get<float>("motor.config.torque_lim"));
+            double rampRate = Get<float>("controller.config.vel_ramp_rate");
+
+            double torque = 0;
+            for (double left = dt; left > 0; left -= PhysicsStep)
+            {
+                double h = Math.Min(PhysicsStep, left);
+                double velSetpoint = inputVel;
+                if (inputMode == InputMode.VelRamp)
+                {
+                    velSetpoint = _velocitySetpoint + Math.Clamp(inputVel - _velocitySetpoint, -rampRate * h, rampRate * h);
+                }
+                _velocitySetpoint = velSetpoint;
+
+                double velDes = velSetpoint;
+                if (mode >= ControlMode.PositionControl)
+                {
+                    velDes += posGain * (inputPos - _position);
+                }
+                if (enableVelLimit)
+                {
+                    velDes = Math.Clamp(velDes, -velLimit, velLimit);
+                }
+                if (overspeedError && Math.Abs(_velocity) > tolerance * velLimit) // controller.cpp:331-341
+                {
+                    Set("controller.error", (byte)(Get<byte>("controller.error") | (byte)ControllerError.Overspeed));
+                    Fail(AxisError.ControllerFailed);
+                    return;
+                }
+
+                torque = inputTorque; // en position et vitesse, input_torque sert d'anticipation (passthrough)
+                double vErr = 0;
+                if (mode >= ControlMode.VelocityControl)
+                {
+                    vErr = velDes - _velocity;
+                    torque += velGain * vErr + _integrator;
+                }
+                if (mode < ControlMode.VelocityControl && torqueModeVelLimit) // controller.cpp:137-141, 388-394
+                {
+                    torque = Math.Clamp(torque, (-velLimit - _velocity) * velGain, (velLimit - _velocity) * velGain);
+                }
+                bool limited = Math.Abs(torque) > torqueLimit;
+                torque = Math.Clamp(torque, -torqueLimit, torqueLimit);
+                if (mode < ControlMode.VelocityControl)
+                {
+                    _integrator = 0;
+                }
+                else
+                {
+                    _integrator = limited ? _integrator * 0.99 : _integrator + integratorGain * h * vErr;
+                }
+                Integrate(load, torque, h);
+            }
+
+            Set("controller.vel_integrator_torque", (float)_integrator);
+            Set("controller.torque_setpoint", (float)torque);
+            Set("motor.current_control.Iq_setpoint", (float)(torque / torqueConstant));
+            Set("motor.current_control.Iq_measured", (float)(torque / torqueConstant));
+        }
+
+        // J·dω/dt = couple − b·ω − τc·signe(ω), avec adhérence à l'arrêt.
+        private void Integrate(MechanicalLoad load, double torque, double h)
+        {
+            if (_velocity == 0 && Math.Abs(torque) <= load.Coulomb)
+            {
+                return;
+            }
+            double friction = load.Viscous * _velocity + load.Coulomb * Math.Sign(_velocity == 0 ? torque : _velocity);
+            double next = _velocity + (torque - friction) / load.Inertia * h;
+            // Le frottement sec arrête la roue au lieu de la faire repartir dans l'autre sens.
+            _velocity = _velocity != 0 && Math.Sign(next) != Math.Sign(_velocity) && Math.Abs(torque) <= load.Coulomb ? 0 : next;
+            _position += _velocity * h;
+        }
+
         private void Fail(AxisError axis, MotorError motor = MotorError.None, EncoderError encoder = EncoderError.None)
         {
             Set("error", Get<uint>("error") | (uint)axis);
@@ -332,10 +455,14 @@ public sealed class SimulatedMotorModel
         {
             Set("current_state", (byte)_state);
             Set("motor.is_armed", _state != AxisState.Idle);
-            Set("encoder.vel_estimate", (float)_velocity);
+            double noise = motor.Mechanics?.VelocityNoise ?? 0;
+            Set("encoder.vel_estimate", (float)(_velocity + (noise > 0 ? noise * Gaussian() : 0)));
             Set("encoder.pos_estimate", (float)_position);
             Set("controller.vel_setpoint", (float)_velocitySetpoint);
         }
+
+        private double Gaussian() =>
+            Math.Sqrt(-2 * Math.Log(1 - _noise.NextDouble())) * Math.Cos(2 * Math.PI * _noise.NextDouble());
 
         private T Get<T>(string path) => (T)Convert.ChangeType(board.Get(prefix + path), typeof(T),
             System.Globalization.CultureInfo.InvariantCulture);

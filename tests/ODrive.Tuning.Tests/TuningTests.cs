@@ -38,6 +38,9 @@ internal sealed class Bench
         return new Bench(board, await ODriveDevice.ConnectAsync(new SimulatedTransport(board)), ticks);
     }
 
+    /// <summary>Horloge de la carte simulée : n'avance qu'avec <see cref="DelayAsync"/>.</summary>
+    public TimeSpan Now => new(Interlocked.Read(ref _ticks[0]));
+
     public bool Confirm(string question)
     {
         Questions.Add(question);
